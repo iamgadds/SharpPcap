@@ -13,6 +13,7 @@ using SharpPcapDemo.Models;
 using SharpPcapDemo.Utilities;
 using System.Text.RegularExpressions;
 using ProtocolType = PacketDotNet.ProtocolType;
+using TCPPacket = SharpPcapDemo.TCPPacket;
 
 
 class Program
@@ -98,15 +99,13 @@ class Program
         // Select the device
         var device = devices[0];
         //devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
+        Console.WriteLine($"Device Selected {device!.Name}");
 
         if (device == null)
         {
             Console.WriteLine($"No matching device found for: {myDevice.Id}");
             return;
         }
-
-
-        Console.WriteLine($"Device Seelcted - {device.Name}");
 
         // Open the devices
         try
@@ -143,7 +142,7 @@ class Program
         // Continuously display MyProcesses
         while (keepRunning)
         {
-            Console.Clear(); // Clear the console before printing new data
+            //Console.Clear(); // Clear the console before printing new data
             DisplayProcessData();
             Thread.Sleep(10000); // Wait for 10 second before printing again
         }        
@@ -153,7 +152,7 @@ class Program
 
     private static void Device_OnPacketArrival(object sender, PacketCapture e)
     {
-        
+        var len = e.Data.Length;
         var rawPacket = e.GetPacket();
         //Console.WriteLine($"Reached the Packet Arrival stage: {rawPacket.Data}");
         var packet = PacketDotNet.Packet.ParsePacket(rawPacket.LinkLayerType, rawPacket.Data);
@@ -170,7 +169,7 @@ class Program
             var dstPort = tcpPacket.DestinationPort;
 
             //Console.WriteLine($"Captured Packet: {ipPacket.SourceAddress}:{tcpPacket.SourcePort} -> {ipPacket.DestinationAddress}:{tcpPacket.DestinationPort}, Payload Length: {tcpPacket.PayloadData.Length}");
-            ProcessPacket(srcIp, srcPort, dstIp, dstPort, tcpPacket.PayloadData.Length);
+            ProcessPacket(srcIp, srcPort, dstIp, dstPort, len);
         }
         else if (udpPacket != null)
         {
@@ -178,9 +177,9 @@ class Program
         }
     }
 
-    private static void ProcessPacket(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort, int payloadLength)
+    private static void ProcessPacket(IPAddress srcIp, int srcPort, IPAddress dstIp, int dstPort, int payloadLength)
     {
-       // Console.WriteLine($"Packet: {srcIp}:{srcPort} -> {dstIp}:{dstPort}");
+       Console.WriteLine($"Packet: {srcIp}:{srcPort} -> {dstIp}:{dstPort} -- {payloadLength}");
 
         int pid = GetProcessIdForConnection(srcIp, srcPort, dstIp, dstPort);
         //Console.WriteLine($"PID: {pid}");
@@ -219,11 +218,12 @@ class Program
                     processData[pid] = data;
                     //Console.WriteLine($"Here we have inputed the data to our Dictionary :{data}");
                 }
+                else{
+                    Console.WriteLine($"Pid: {pid}");
+                }
             }
         }
-        else{
-            Console.WriteLine($"Pid: {pid}");
-        }
+        
     }
 
     private static MyProcess_Big GetProcessDetails(int pid)
@@ -250,7 +250,7 @@ class Program
         }
     }
 
-    private static int GetProcessIdForConnection(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort)
+    private static int GetProcessIdForConnection(IPAddress srcIp, int srcPort, IPAddress dstIp, int dstPort)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -258,8 +258,19 @@ class Program
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            //return NetworkUtils.GetProcessIdForConnectionMacOS(srcIp.ToString(), srcPort, dstIp.ToString(), dstPort);
-            return GetProcessIdForMacOSConnection(srcIp.ToString(),srcPort,dstIp.ToString(),dstPort);
+            string? ip = null;
+            int? port = null;
+
+            if(srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item1) || srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item2)){
+                ip = dstIp.ToString();
+                port = dstPort;
+            }
+            else //if(srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item1) || srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item2)){
+            { 
+                  ip = srcIp.ToString();
+                port = srcPort;
+            }
+            return GetProcessIdForMacOSConnection(ip,port);
         }
         else
         {
@@ -267,7 +278,7 @@ class Program
         }
     }
 
-    private static int GetProcessIdForConnectionWindows(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort)
+    private static int GetProcessIdForConnectionWindows(IPAddress srcIp, int srcPort, IPAddress dstIp, int dstPort)
     {
         int bufferSize = 0;
         GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
@@ -311,10 +322,15 @@ class Program
     }
 
 
-private static int GetProcessIdForMacOSConnection(string srcIp, int srcPort, string dstIp, int dstPort)
+private static int GetProcessIdForMacOSConnection(string? srcIp, int? srcPort)
 {
+    if (srcIp == null || srcPort == null){
+        Console.WriteLine($"Pid: -1 :null");
+        return -1;
+    }
+
     // Construct the command to check for established connections
-    string command = $"lsof -i TCP -n -P | grep ESTABLISHED";
+    string command = $"lsof -i TCP:{srcPort} -n -P | grep ESTABLISHED";
     var processStartInfo = new System.Diagnostics.ProcessStartInfo
     {
         FileName = "/bin/bash",
@@ -337,193 +353,17 @@ private static int GetProcessIdForMacOSConnection(string srcIp, int srcPort, str
             // Extract fields from the line
             string[] fields = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            // Check if the line matches the criteria
-            if (fields.Length >= 9 && fields[0] != "COMMAND" && fields[8].Contains("->") && fields[9] == "(ESTABLISHED)")
-            {
-                // Extract source IP and port
-                string[] srcFields = fields[8].Split(new[] { "->" }, StringSplitOptions.RemoveEmptyEntries);
-                string[] srcIpPort = srcFields[0].Split(':');
-                string srcIpExtracted = srcIpPort[0];
-                int srcPortExtracted = int.Parse(srcIpPort[1]);
-
-                // Extract destination IP and port
-                string[] dstIpPort = srcFields[1].Split(':');
-                string dstIpExtracted = dstIpPort[0];
-                int dstPortExtracted = int.Parse(dstIpPort[1]);
-
-                int pid;
+            int pid;
                     if (int.TryParse(fields[1], out pid))
                     {
-                        //Console.WriteLine($"Process Id {pid}");
-                        connectionStore.AddConnection(new ConnectionInfo
-                        {
-                            SourceIp = srcIpExtracted,
-                            SourcePort = srcPortExtracted,
-                            DestinationIp = dstIpExtracted,
-                            DestinationPort = dstPortExtracted,
-                            ProcessId = pid
-                        });
+                        return pid;
                     }
-                
-            }
         }
-        return connectionStore.GetProcessId(srcIp, srcPort, dstIp, dstPort);
-    }
-
-}
-
-public static int GetProcessIdForPacket(IPAddress sourceIp, ushort sourcePort, IPAddress destinationIp, ushort destinationPort, ProtocolType protocol)
-{
-    int[] pids = new int[1024];
-    int bytesProcessed;
-    int err = proc_listpids(pids, pids.Length, out bytesProcessed);
-    if (err != 0)
-    {
-        Console.WriteLine($"Error getting process list: {err}");
+        Console.WriteLine($"Pid: -1 {srcIp}:{srcPort}");
         return -1;
     }
 
-    for (int i = 0; i < bytesProcessed / sizeof(int); i++)
-    {
-        int pid = pids[i];
-        if (IsProcessAssociatedWithConnection(pid, sourceIp, sourcePort, destinationIp, destinationPort, protocol))
-        {
-            return pid;
-        }
-    }
-
-    return -1;
 }
-
-private static bool IsProcessAssociatedWithConnection(int pid, IPAddress sourceIp, ushort sourcePort, IPAddress destinationIp, ushort destinationPort, ProtocolType protocol)
-{
-    int[] fds = new int[1024];
-    int bytesProcessed;
-    int err = proc_pidinfo(pid, PROC_PIDFDVNODES, IntPtr.Zero, 0, IntPtr.Zero, 0);
-    if (err <= 0)
-    {
-        return false;
-    }
-
-    byte[] buffer = new byte[err];
-    IntPtr ptr = Marshal.AllocHGlobal(err);
-    err = proc_pidinfo(pid, PROC_PIDFDVNODES, ptr, err, IntPtr.Zero, 0);
-    if (err <= 0)
-    {
-        Marshal.FreeHGlobal(ptr);
-        return false;
-    }
-
-    Marshal.Copy(ptr, buffer, 0, err);
-    Marshal.FreeHGlobal(ptr);
-
-    IntPtr iter = IntPtr.Zero;
-    for (int i = 0; i < err; i += Marshal.SizeOf(typeof(int)))
-    {
-        int fd = BitConverter.ToInt32(buffer, i);
-        int len;
-        IntPtr sockAddr = IntPtr.Zero;
-        int sockAddrLen = 0;
-
-        err = proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, out sockAddr, out sockAddrLen);
-        if (err == 0 && sockAddr != IntPtr.Zero)
-        {
-            if (IsSockAddrMatchingConnection(sockAddr, sockAddrLen, sourceIp, sourcePort, destinationIp, destinationPort, protocol))
-            {
-                Marshal.FreeHGlobal(sockAddr);
-                return true;
-            }
-            Marshal.FreeHGlobal(sockAddr);
-        }
-    }
-
-    return false;
-}
-
-private static bool IsSockAddrMatchingConnection(IntPtr sockAddr, int sockAddrLen, IPAddress sourceIp, ushort sourcePort, IPAddress destinationIp, ushort destinationPort, ProtocolType protocol)
-{
-    return true;
-    // if (protocol != ProtocolType.Tcp)
-    //     return false;
-
-    // // Ensure the sockaddr length is at least the size of a sockaddr_in structure
-    // if (sockAddrLen < Marshal.SizeOf(typeof(SockaddrIn)))
-    //     return false;
-
-    // // Convert the sockaddr pointer to a sockaddr_in structure
-    // SockaddrIn socketAddress = (SockaddrIn)Marshal.PtrToStructure(sockAddr, typeof(SockaddrIn));
-
-    // // Check the address family
-    // if (socketAddress.sin_family != AddressFamily.InterNetwork)
-    //     return false;
-
-    // // Extract the IP address and port from the sockaddr_in structure
-    // byte[] addressBytes = new byte[4];
-    // Array.Copy(socketAddress.sin_addr.Bytes, addressBytes, 4);
-    // IPAddress ipAddress = new IPAddress(addressBytes);
-    // ushort port = (ushort)IPAddress.NetworkToHostOrder((short)socketAddress.sin_port);
-
-    // // Check if the IP address and port match the source or destination
-    // bool isSourceMatch = (ipAddress.Equals(sourceIp) && port == sourcePort);
-    // bool isDestinationMatch = (ipAddress.Equals(destinationIp) && port == destinationPort);
-
-    // return isSourceMatch || isDestinationMatch;
-}
-
-// [StructLayout(LayoutKind.Sequential)]
-// private struct SockaddrIn
-// {
-//     public ushort sin_family;
-//     public ushort sin_port;
-//     public InAddr sin_addr;
-//     public byte sin_zero; // Padding to make the struct size correct
-
-//     public SockaddrIn(ushort family, ushort port, byte[] address)
-//     {
-//         sin_family = family;
-//         sin_port = port;
-//         sin_addr = new InAddr(address);
-//         sin_zero = 0;
-//     }
-
-//     [StructLayout(LayoutKind.Explicit)]
-//     public struct InAddr
-//     {
-//         [FieldOffset(0)]
-//         public byte s_b1;
-//         [FieldOffset(1)]
-//         public byte s_b2;
-//         [FieldOffset(2)]
-//         public byte s_b3;
-//         [FieldOffset(3)]
-//         public byte s_b4;
-
-//         [FieldOffset(0)]
-//         public uint S_un;
-
-//         public byte[] Bytes;
-
-//         public InAddr(byte[] address)
-//         {
-//             Bytes = new byte[4];
-//             Array.Copy(address, Bytes, 4);
-//         }
-//     }
-// }
-
-
-private const int PROC_PIDFDVNODES = 1;
-private const int PROC_PIDFDSOCKETINFO = 5;
-
-[DllImport("/usr/lib/libproc.dylib")]
-private static extern int proc_listpids(int[] buffer, int bufferSize, out int bytesProcessed);
-
-[DllImport("/usr/lib/libproc.dylib")]
-private static extern int proc_pidinfo(int pid, int flavor, IntPtr arg, int argSize, IntPtr buffer, int bufferSize);
-
-[DllImport("/usr/lib/libproc.dylib")]
-private static extern int proc_pidfdinfo(int pid, int fd, int flavor, out IntPtr buffer, out int bufferSize);
-
     private static void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
