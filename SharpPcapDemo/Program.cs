@@ -352,39 +352,52 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 }
-    private  void DisplayProcessData()
+    private void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
-        if (dudvm != null && dudvm.MyProcesses != null && dudvm.MyProcesses != null)
-           // Console.WriteLine($"Adapter: {netProc.AdapterName}, Download Speed: {netProc.DownloadSpeed}, Upload Speed: {netProc.UploadSpeed}");
-           // Console.WriteLine($"Current Session:  Download Data: {netProc.CurrentSessionDownloadData}, Upload Data: {netProc.CurrentSessionUploadData} ");
+
+        if (dudvm != null && dudvm.MyProcesses != null)
+        {
+            var groupedProcesses = dudvm.MyProcesses.Values
+                .GroupBy(p => p.ProcessId)
+                .Select(g => new
+                {
+                    ProcessId = g.Key,
+                    Name = g.First().Name, // Assuming all instances have the same name
+                    IsSystemApp = g.First().IsSystemApp, // Assuming all instances have the same IsSystemApp flag
+                    TotalDataRecv = g.Sum(p => p.TotalDataRecv),
+                    TotalDataSend = g.Sum(p => p.TotalDataSend)
+                });
+
             Console.WriteLine("------------------------------------");
             Console.WriteLine("MyProcesses:");
-            foreach (var process in dudvm.MyProcesses)
-            { 
-                if (process.Value != null)
-                {
-                    Console.WriteLine($"Process Name: {process.Value.Name}, @{process.Key}:{process.Value.Port} , IsSytem: {process.Value.IsSystemApp}, CurrentDataRecv: {process.Value.CurrentDataRecv}, CurrentDataSend: {process.Value.CurrentDataSend}, TotalDataRecieved: {process.Value.TotalDataRecv}, TotalDataSent: {process.Value.TotalDataSend}");
-                }
+            foreach (var process in groupedProcesses)
+            {
+                Console.WriteLine($"Process ID: {process.ProcessId}, Name: {process.Name}, IsSystem: {process.IsSystemApp}, TotalDataReceived: {process.TotalDataRecv}, TotalDataSent: {process.TotalDataSend}");
             }
-            Console.WriteLine("-------------------------------------");
+            Console.WriteLine("------------------------------------");
         }
-    
+    }
+
 
     public void Dispose()
     {
-        throw new NotImplementedException();
     }
 }
 
 class ProgramEntryPoint
 {
-    static void Main(string[] args)
+    public static void Main(string[] args)
     {
+        //async Task
         using (var program = new Program())
         {
             program.Main(args);
         }
+        //using (var socket = new SockerConnection())
+        //{
+        //  // await socket.StartConnectionAsync();
+        //}
     }
 }
 
