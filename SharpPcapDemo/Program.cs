@@ -23,6 +23,7 @@ class Program : INotifyPropertyChanged, IDisposable
     #region Properties
     private DataUsageDetailedVM dudvm;
     private NetworkProcess netProc;
+    private SockerConnection socketConnection;
 
     public long downloadSpeed;
     public long DownloadSpeed
@@ -87,7 +88,7 @@ class Program : INotifyPropertyChanged, IDisposable
     );
 
     private (byte[], byte[]) myIpAddress;
-    public void Main(string[] args)
+    public async Task Main(string[] args)
     {
         DownloadSpeed = 0;
         UploadSpeed = 0;
@@ -100,17 +101,23 @@ class Program : INotifyPropertyChanged, IDisposable
         netProc = new NetworkProcess();
         netProc.PropertyChanged += NetProc_PropertyChanged;
         netProc.Initialize(); //have to call this after subscribing to property changer
+
+        // Start the WebSocket server
+        socketConnection = new SockerConnection();
+        await socketConnection.StartConnectionAsync();
+
         bool keepRunning = true;
 
         // Continuously display MyProcesses
         while (keepRunning)
         {
-            Console.Clear(); // Clear the console before printing new data
-            DisplayProcessData();
-            Thread.Sleep(10000); // Wait for 10 second before printing again
+            //Console.Clear(); // Clear the console before printing new data
+            //DisplayProcessData();
+            await SendProcessDataAsync();
+            Thread.Sleep(4000); // Wait for 10 second before printing again
         }        
 
-        Console.WriteLine("Capture complete.");
+       // Console.WriteLine("Capture complete.");
     }
 
     private void NetProc_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -158,11 +165,11 @@ class Program : INotifyPropertyChanged, IDisposable
     {
         if (netProc.MyProcesses != null && netProc.MyProcessesBuffer != null && dudvm.MyProcesses != null)
         {
-            //foreach (KeyValuePair<string, MyProcess_Big> app in dudvm.MyProcesses)
-            //{
-            //    dudvm.MyProcesses[app.Key].CurrentDataRecv = 0;
-            //    dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
-            //}
+            foreach (KeyValuePair<string, MyProcess_Big> app in dudvm.MyProcesses)
+            {
+                dudvm.MyProcesses[app.Key].CurrentDataRecv = 0;
+                dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
+            }
 
             netProc.IsBufferTime = true;
 
@@ -313,7 +320,7 @@ class Program : INotifyPropertyChanged, IDisposable
     private  int GetProcessIdForMacOSConnection(string? ip, int? port)
 {
     if (ip == null || port == null){
-        Console.WriteLine($"Pid: -1 :null");
+        //Console.WriteLine($"Pid: -1 :null");
         return -1;
     }
 
@@ -340,18 +347,25 @@ class Program : INotifyPropertyChanged, IDisposable
         {
             // Extract fields from the line
             string[] fields = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                
+                int pid;
+                if (int.TryParse(fields[1], out pid))
+                {
+                    return pid;
+                }
 
-            int pid;
-                    if (int.TryParse(fields[1], out pid))
-                    {
-                        return pid;
-                    }
-        }
-        Console.WriteLine($"Pid: -1 {ip}:{port}");
+                //int pid;
+                //    if (int.TryParse(fields[1], out pid))
+                //    {
+                //        return pid;
+                //    }
+            }
+        //Console.WriteLine($"Pid: -1 {ip}:{port}");
         return -1;
     }
 
 }
+
     private void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
@@ -379,25 +393,31 @@ class Program : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private async Task SendProcessDataAsync()
+    {
+        if (dudvm != null && dudvm.MyProcesses != null)
+        {
+            await socketConnection.SendDataAsync(dudvm.MyProcesses);
+        }
+    }
+
 
     public void Dispose()
     {
+        netProc.PropertyChanged -= NetProc_PropertyChanged;
+        socketConnection?.Dispose();
     }
 }
 
 class ProgramEntryPoint
 {
-    public static void Main(string[] args)
+    public static async Task Main(string[] args)
     {
         //async Task
         using (var program = new Program())
         {
-            program.Main(args);
+            await program.Main(args);
         }
-        //using (var socket = new SockerConnection())
-        //{
-        //  // await socket.StartConnectionAsync();
-        //}
     }
 }
 
