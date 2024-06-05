@@ -10,11 +10,11 @@ namespace SharpPcapDemo
 {
     public class DataUsageDetailedVM
     {
-        public ConcurrentDictionary<string, MyProcess_Big> MyProcesses { get; set; }
+        public ConcurrentDictionary<int, MyProcess_Big> MyProcesses { get; set; }
 
         public DataUsageDetailedVM()
         {
-            MyProcesses = new ConcurrentDictionary<string, MyProcess_Big>();
+            MyProcesses = new ConcurrentDictionary<int, MyProcess_Big>();
         }
     }
 }

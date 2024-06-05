@@ -158,37 +158,47 @@ class Program : INotifyPropertyChanged, IDisposable
     {
         if (netProc.MyProcesses != null && netProc.MyProcessesBuffer != null && dudvm.MyProcesses != null)
         {
-            //foreach (KeyValuePair<string, MyProcess_Big> app in dudvm.MyProcesses)
-            //{
-            //    dudvm.MyProcesses[app.Key].CurrentDataRecv = 0;
-            //    dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
-            //}
+            foreach (KeyValuePair<int, MyProcess_Big> app in dudvm.MyProcesses)
+            {
+                dudvm.MyProcesses[app.Key].CurrentDataRecv = 0;
+                dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
+            }
 
             netProc.IsBufferTime = true;
 
             //this dictionary is locked from being accessible by the other threads like the network data capture Recv()
             lock (netProc.MyProcesses)
-            { 
+            {
                 foreach (KeyValuePair<string, MyProcess_Small?> app in netProc.MyProcesses) //the contents of this loops remain only for a sec (related to NetworkProcess.cs=>CaptureNetworkSpeed())
                 {
-                    dudvm.MyProcesses.TryAdd(app.Key, new MyProcess_Big("", 0, 0, 0, 0));
-                    dudvm.MyProcesses[app.Key].CurrentDataRecv = app.Value!.CurrentDataRecv;
-                    dudvm.MyProcesses[app.Key].CurrentDataSend = app.Value!.CurrentDataSend;
-                    dudvm.MyProcesses[app.Key].TotalDataRecv += app.Value!.CurrentDataRecv;
-                    dudvm.MyProcesses[app.Key].TotalDataSend += app.Value!.CurrentDataSend;
-                    dudvm.MyProcesses[app.Key].Port = app.Value!.Port;
+                    int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
 
-                    if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[app.Key].Name))
+                    if (processid <= 0)
                     {
-                        dudvm.MyProcesses[app.Key].ProcessId = ProcessPacket(app.Value.IpAddress, app.Value.Port);
+                        continue;
+                    }
 
-                        MyProcess_Big details = GetProcessDetails(dudvm.MyProcesses[app.Key].ProcessId);
-                        if (details != null)
+                    if (!dudvm.MyProcesses.ContainsKey(processid))
+                    {
+                        dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
+                        if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
-                            dudvm.MyProcesses[app.Key].Name = details.Name;
-                            dudvm.MyProcesses[app.Key].IsSystemApp = details.IsSystemApp;
+                            MyProcess_Big details = GetProcessDetails(processid);
+                            if (details != null)
+                            {
+                                dudvm.MyProcesses[processid].Name = details.Name;
+                                dudvm.MyProcesses[processid].IsSystemApp = details.IsSystemApp;
+                            }
                         }
                     }
+                    dudvm.MyProcesses[processid].CurrentDataRecv = app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].CurrentDataSend = app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].Port = app.Value!.Port;
+
+
                 }
                 netProc.MyProcesses.Clear();
             }
@@ -199,28 +209,35 @@ class Program : INotifyPropertyChanged, IDisposable
             {
                 foreach (KeyValuePair<string, MyProcess_Small?> app in netProc.MyProcessesBuffer) //the contents of this loops remain only for a sec (related to NetworkProcess.cs=>CaptureNetworkSpeed())
                 {
-                    Debug.WriteLine("BUFFEEERRRRR!!!!!");
-                    dudvm.MyProcesses.TryAdd(app.Key, new MyProcess_Big("", 0, 0, 0, 0));
-                    dudvm.MyProcesses[app.Key].CurrentDataRecv += app.Value!.CurrentDataRecv;
-                    dudvm.MyProcesses[app.Key].CurrentDataSend += app.Value!.CurrentDataSend;
-                    dudvm.MyProcesses[app.Key].TotalDataRecv += app.Value!.CurrentDataRecv;
-                    dudvm.MyProcesses[app.Key].TotalDataSend += app.Value!.CurrentDataSend;
-                    dudvm.MyProcesses[app.Key].Port = app.Value!.Port;
+                    int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
 
-                    if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[app.Key].Name))
+                    if (processid <= 0)
                     {
-                        dudvm.MyProcesses[app.Key].ProcessId = ProcessPacket(app.Value.IpAddress, app.Value.Port);
+                        continue;
+                    }
 
-                        MyProcess_Big details = GetProcessDetails(dudvm.MyProcesses[app.Key].ProcessId);
-                        if (details != null)
+                    if (!dudvm.MyProcesses.ContainsKey(processid))
+                    {
+                        dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
+                        if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
-                            dudvm.MyProcesses[app.Key].Name = details.Name;
-                            dudvm.MyProcesses[app.Key].IsSystemApp = details.IsSystemApp;
+                            MyProcess_Big details = GetProcessDetails(processid);
+                            if (details != null)
+                            {
+                                dudvm.MyProcesses[processid].Name = details.Name;
+                                dudvm.MyProcesses[processid].IsSystemApp = details.IsSystemApp;
+                            }
                         }
                     }
-                }
+                    dudvm.MyProcesses[processid].CurrentDataRecv = app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].CurrentDataSend = app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].Port = app.Value!.Port;
 
-                netProc.MyProcessesBuffer.Clear();
+                    netProc.MyProcessesBuffer.Clear();
+                }
             }
         }
     }
@@ -318,7 +335,7 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
     // Construct the command to check for established connections
-    string command = $"lsof -i TCP@{ip}:{port} -n -P | grep ESTABLISHED";
+    string command = $"lsof -i TCP@{ip}:{port} -n -P -F pcu";
     var processStartInfo = new System.Diagnostics.ProcessStartInfo
     {
         FileName = "/bin/bash",
@@ -338,14 +355,12 @@ class Program : INotifyPropertyChanged, IDisposable
         string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (string line in lines)
         {
-            // Extract fields from the line
-            string[] fields = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (line.StartsWith("p") && int.TryParse(line.Substring(1), out int pid))
+                {
+                    return pid;
+                }
 
-            int pid;
-                    if (int.TryParse(fields[1], out pid))
-                    {
-                        return pid;
-                    }
+            
         }
         Console.WriteLine($"Pid: -1 {ip}:{port}");
         return -1;
@@ -358,22 +373,12 @@ class Program : INotifyPropertyChanged, IDisposable
 
         if (dudvm != null && dudvm.MyProcesses != null)
         {
-            var groupedProcesses = dudvm.MyProcesses.Values
-                .GroupBy(p => p.ProcessId)
-                .Select(g => new
-                {
-                    ProcessId = g.Key,
-                    Name = g.First().Name, // Assuming all instances have the same name
-                    IsSystemApp = g.First().IsSystemApp, // Assuming all instances have the same IsSystemApp flag
-                    TotalDataRecv = g.Sum(p => p.TotalDataRecv),
-                    TotalDataSend = g.Sum(p => p.TotalDataSend)
-                });
-
+            
             Console.WriteLine("------------------------------------");
             Console.WriteLine("MyProcesses:");
-            foreach (var process in groupedProcesses)
+            foreach (var process in dudvm.MyProcesses)
             {
-                Console.WriteLine($"Process ID: {process.ProcessId}, Name: {process.Name}, IsSystem: {process.IsSystemApp}, TotalDataReceived: {process.TotalDataRecv}, TotalDataSent: {process.TotalDataSend}");
+                Console.WriteLine($"Process ID: {process.Key}, Name: {process.Value.Name}, IsSystem: {process.Value.IsSystemApp}, TotalDataReceived: {process.Value.TotalDataRecv}, TotalDataSent: {process.Value.TotalDataSend}");
             }
             Console.WriteLine("------------------------------------");
         }
