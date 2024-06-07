@@ -353,24 +353,23 @@ class Program : INotifyPropertyChanged, IDisposable
 
         // Parse the output to find the PID for the matching connection
         string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (string line in lines)
-        {
-                if (line.StartsWith("p") && int.TryParse(line.Substring(1), out int pid))
-                {
-                    return pid;
-                }
 
-            
-        }
-        Console.WriteLine($"Pid: -1 {ip}:{port}");
-        return -1;
+            string? item = lines.FirstOrDefault(x => x.StartsWith("p"));
+            if (!string.IsNullOrWhiteSpace(item))
+            {
+                int.TryParse(item.Substring(1), out int pid);
+                return pid;
+            }
+
+            Console.WriteLine($"Pid: -1 {ip}:{port}");
+            return -1;
     }
 
 }
     private void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
-
+         
         if (dudvm != null && dudvm.MyProcesses != null)
         {
             
