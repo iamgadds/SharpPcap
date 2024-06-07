@@ -272,16 +272,6 @@ namespace SharpPcapDemo
                     Console.WriteLine($"Error opening device: {e.Message}");
                     return;
                 }
-
-                // Create a thread to listen for 'Enter' key press
-                Thread inputThread = new Thread(() =>
-                {
-                    Console.WriteLine("Capture Started --> Press Enter to stop");
-                    Console.ReadLine();
-                    device.StopCapture();
-                    device.Close();
-                });
-                inputThread.Start();
             });
 
             asyncTask_networkSpeed.Task = CaptureNetworkSpeed(); //start logging the speed
