@@ -9,9 +9,11 @@ namespace SharpPcapDemo
     {
         private HttpListener? _listener;
         private WebSocket? _webSocket;
+        private CancellationTokenSource? _cancellationTokenSource;
 
         public void Dispose()
         {
+            _cancellationTokenSource?.Cancel();
             _webSocket?.Dispose();
             _listener?.Close();
         }
@@ -22,15 +24,24 @@ namespace SharpPcapDemo
             _listener.Prefixes.Add("http://localhost:8080/");
             _listener.Start();
             Console.WriteLine("WebSocket server started at ws://localhost:8080/");
+            _cancellationTokenSource = new CancellationTokenSource();
 
-            while (true)
+            while (!_cancellationTokenSource.Token.IsCancellationRequested)
             {
-                HttpListenerContext context = await _listener.GetContextAsync();
-                if (context.Request.IsWebSocketRequest)
+                try
                 {
-                    HttpListenerWebSocketContext webSocketContext = await context.AcceptWebSocketAsync(null);
-                    _webSocket = webSocketContext.WebSocket;
-                    break;
+                    HttpListenerContext context = await _listener.GetContextAsync();
+                    if (context.Request.IsWebSocketRequest)
+                    {
+                        HttpListenerWebSocketContext webSocketContext = await context.AcceptWebSocketAsync(null);
+                        _webSocket = webSocketContext.WebSocket;
+                        Console.WriteLine("WebSocket connection established");
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error accepting WebSocket connection: {ex.Message}");
                 }
             }
         }
@@ -39,9 +50,25 @@ namespace SharpPcapDemo
         {
             if (_webSocket != null && _webSocket.State == WebSocketState.Open)
             {
-                string jsonData = JsonConvert.SerializeObject(data);
-                byte[] buffer = Encoding.UTF8.GetBytes(jsonData);
-                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                try
+                {
+                    string jsonData = JsonConvert.SerializeObject(data);
+                    byte[] buffer = Encoding.UTF8.GetBytes(jsonData);
+                    await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                }
+                catch (WebSocketException ex)
+                {
+                    Console.WriteLine($"WebSocket error: {ex.Message}");
+                    // Handle WebSocket error (e.g., attempt to reconnect or notify the user)
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error sending data: {ex.Message}");
+                }
+            }
+            else
+            {
+                Console.WriteLine("WebSocket is not in an open state.");
             }
         }
     }
