@@ -79,6 +79,11 @@ class Program : INotifyPropertyChanged, IDisposable
     private (byte[], byte[]) myIpAddress;
     public async Task Main(string[] args)
     {
+        // Start the WebSocket server in a separate task
+        socketConnection = new SocketConnection();
+        var socketTask = socketConnection.StartConnectionAsync();
+
+        Console.WriteLine("Handshake Successful");
         DownloadSpeed = 0;
         UploadSpeed = 0;
         date1 = DateTime.Now;
@@ -89,23 +94,14 @@ class Program : INotifyPropertyChanged, IDisposable
 
         netProc = new NetworkProcess();
         netProc.PropertyChanged += NetProc_PropertyChanged;
-        netProc.Initialize(); //have to call this after subscribing to property changer
-
-        // Start the WebSocket server
-        socketConnection = new SocketConnection();
-        await socketConnection.StartConnectionAsync();
-
-
-        bool keepRunning = true;
+        netProc.Initialize(); // Have to call this after subscribing to property changed
 
         // Continuously display MyProcesses
-        while (keepRunning)
+        while (true)
         {
-            //Console.Clear(); // Clear the console before printing new data
-            //DisplayProcessData();
             await SendProcessDataAsync();
-            Thread.Sleep(4000); // Wait for 10 second before printing again
-        }        
+            Thread.Sleep(4000); // Wait for 4 seconds before sending data again
+        }
     }
 
     private void NetProc_PropertyChanged(object? sender, PropertyChangedEventArgs e)
