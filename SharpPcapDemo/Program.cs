@@ -1,19 +1,62 @@
-﻿using System;
-using System.Collections;
-using System.Diagnostics;
-using System.Drawing;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
-using PacketDotNet;
-using PacketDotNet.Ieee80211;
-using SharpPcap;
+﻿using SharpPcapDemo;
 using SharpPcapDemo.Models;
-using SharpPcapDemo.Utilities;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Net;
+using System.Runtime.InteropServices;
 
-class Program
+
+
+
+class Program : INotifyPropertyChanged, IDisposable
 {
+
+
+    #region Properties
+    private DataUsageDetailedVM? dudvm; 
+    private NetworkProcess? netProc;
+    private SocketConnection? socketConnection;
+
+
+    public long downloadSpeed;
+    public long DownloadSpeed
+    {
+        get { return downloadSpeed; }
+        set { downloadSpeed = value; OnPropertyChanged("DownloadSpeed"); }
+    }
+    public long uploadSpeed;
+
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged(string propName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
+
+
+
+
+    public long UploadSpeed
+    {
+        get { return uploadSpeed; }
+        set { uploadSpeed = value; OnPropertyChanged("UploadSpeed"); }
+    }
+
+
+    private string networkStatus;
+    public string NetworkStatus
+    {
+        get { return networkStatus; }
+        set { networkStatus = value; OnPropertyChanged("NetworkStatus"); }
+    }
+
+
+    private DateTime date1;
+    private DateTime date2;
+
+
+    private long initTodayTotalDownloadData = 0;
+    private long initTodayTotalUploadData = 0;
+    #endregion
+
+
     [StructLayout(LayoutKind.Sequential)]
     public struct MIB_TCPROW_OWNER_PID
     {
@@ -27,12 +70,14 @@ class Program
         public uint owningPid;
     }
 
+
     [StructLayout(LayoutKind.Sequential)]
     public struct MIB_TCPTABLE_OWNER_PID
     {
         public uint dwNumEntries;
         public MIB_TCPROW_OWNER_PID table;
     }
+
 
     [DllImport("iphlpapi.dll", SetLastError = true)]
     public static extern uint GetExtendedTcpTable(
@@ -44,158 +89,198 @@ class Program
         int Reserved
     );
 
-    static Dictionary<int, MyProcess_Big> processData = new Dictionary<int, MyProcess_Big>();
-    static object processDataLock = new object();
-    private static byte[] defaultIPv4;
-    private static byte[] defaultIPv6;
-    private static byte[] localIPv4;
-    private static byte[] localIPv6;
-    public static string AdapterName { get; private set; }
-    public static string IsNetworkOnline { get; set; }
 
-    static (byte[], byte[]) myIpAddress;
-    static void Main(string[] args)
+    private (byte[], byte[]) myIpAddress;
+    public async Task Main(string[] args)
     {
-        NetworkChange.NetworkAddressChanged += NetworkChange_NetworkAddressChanged;
-        IsNetworkOnline = "Disconnected";
-        defaultIPv4 = new byte[]
+        using (var cancellationTokenSource = new CancellationTokenSource())
+        {
+            // Start the WebSocket server in a separate task
+            socketConnection = new SocketConnection();
+            var socketTask = socketConnection.StartConnectionAsync();
+
+
+            Console.WriteLine("Handshake Successful");
+            DownloadSpeed = 0;
+            UploadSpeed = 0;
+            date1 = DateTime.Now;
+            date2 = DateTime.Now;
+
+
+            networkStatus = "";
+            dudvm = new DataUsageDetailedVM();
+
+
+            netProc = new NetworkProcess();
+            netProc.PropertyChanged += NetProc_PropertyChanged;
+            netProc.Initialize(); // Have to call this after subscribing to property changed
+
+
+            // Continuously display MyProcesses
+            while (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested)
             {
-                0, 0, 0, 0
-            };
-        defaultIPv6 = new byte[]
-        {
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0
-        };
-        // Retrieve the device list
-        var devices = CaptureDeviceList.Instance;
-
-        // If no devices were found, print an error
-        if (devices.Count < 1)
-        {
-            Console.WriteLine("No devices were found on this machine.");
-            return;
-        }
-
-        // Print the list of devices
-        Console.WriteLine("The following devices are available on this machine:");
-        foreach (var dev in devices)
-        {
-            Console.WriteLine($"{dev.Name} - {dev.Description}");           
-        }
-
-        myIpAddress = GetLocalIP();
-
-        NetworkInterface myDevice = GetStatusUpConnectedDevice(null, null);
-
-        // Select the device
-        var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
-
-        // Open the device
-        device.Open(DeviceModes.Promiscuous, 1000);
-
-        // Register our handler function to the 'packet arrival' event
-        device.OnPacketArrival += new PacketArrivalEventHandler(Device_OnPacketArrival);
-
-        // Start capturing packets
-        device.StartCapture();
-
-        bool keepRunning = true;
-
-        // Create a thread to listen for 'Enter' key press
-        Thread inputThread = new Thread(() =>
-        {
-            Console.WriteLine("Capture Started --> Press Enter to stop");
-            Console.ReadLine();
-            keepRunning = false;
-            device.StopCapture();
-            device.Close();
-        });
-        inputThread.Start();
-
-        // Continuously display MyProcesses
-        while (keepRunning)
-        {
-            Console.Clear(); // Clear the console before printing new data
-            DisplayProcessData();
-            Thread.Sleep(10000); // Wait for 10 second before printing again
-        }        
-
-        Console.WriteLine("Capture complete.");
-    }
-
-    private static void Device_OnPacketArrival(object sender, PacketCapture e)
-    {
-        var rawPacket = e.GetPacket();
-        var packet = PacketDotNet.Packet.ParsePacket(rawPacket.LinkLayerType, rawPacket.Data);
-        //var packet = Packet.ParsePacket(e.GetPacket()!.LinkLayerType, e.GetPacket()!.Data);
-        var tcpPacket = packet.Extract<TcpPacket>();
-        var udpPacket = packet.Extract<UdpPacket>();
-        var ipPacket = packet.Extract<PacketDotNet.IPPacket>();
-
-        if (tcpPacket != null)
-        {
-            var srcIp = ipPacket!.SourceAddress;
-            var dstIp = ipPacket!.DestinationAddress;
-            var srcPort = tcpPacket.SourcePort;
-            var dstPort = tcpPacket.DestinationPort;
-
-           // Console.WriteLine($"Captured Packet: {ipPacket.SourceAddress}:{tcpPacket.SourcePort} -> {ipPacket.DestinationAddress}:{tcpPacket.DestinationPort}, Payload Length: {tcpPacket.PayloadData.Length}");
-            ProcessPacket(srcIp, srcPort, dstIp, dstPort, tcpPacket.PayloadData.Length);
-        }
-        else if (udpPacket != null)
-        {
-            //ProcessPacket(ip!.SourceAddress, udpPacket.SourcePort, ip!.DestinationAddress, udpPacket.DestinationPort, udpPacket.PayloadData.Length);
+                await SendProcessDataAsync();
+                //DisplayProcessData();
+                Thread.Sleep(4000); // Wait for 4 seconds before sending data again
+            }
         }
     }
 
-    private static void ProcessPacket(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort, int payloadLength)
-    {
-        //Console.WriteLine($"Packet: {srcIp}:{srcPort} -> {dstIp}:{dstPort}");
 
-        int pid = GetProcessIdForConnection(srcIp, srcPort, dstIp, dstPort);
-        //Console.WriteLine($"PID: {pid}");
-        if (pid != -1 && pid != 0)
+    private void NetProc_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        Stopwatch sw = new Stopwatch();
+        sw.Start();
+        switch (e.PropertyName)
         {
-            lock (processDataLock)
-            {
-                var data = new MyProcess_Big();
-                if (!processData.ContainsKey(pid))
+            case "DownloadSpeed":
+                UpdateData();
+                break;
+            case "IsNetworkOnline":
+                if (netProc.IsNetworkOnline == "Disconnected")
                 {
-                    processData[pid] = new MyProcess_Big();
-                    processData[pid] = GetProcessDetails(pid);
+                    NetworkStatus = "Disconnected";
+                    if (dudvm.MyProcesses.Count() > 0)
+                    {
+                        dudvm.MyProcesses.Clear();
+                        //foreach (var row in dudvm.MyProcesses.ToList())
+                        //{
+                        //    dudvm.MyProcesses.TryRemove(row);
+                        //}
+                    }
                 }
-
-                if (processData[pid] != null)
+                else
                 {
-                    data = processData[pid];
-                    data!.CurrentDataSent = payloadLength;
-                    data!.CurrentDataRcvd = payloadLength;
-                    // Assuming your machine's IP address is in myIpAddress
-                    if (srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item1) || srcIp.GetAddressBytes().SequenceEqual(myIpAddress.Item2))
+                    NetworkStatus = "Connected : " + netProc.IsNetworkOnline;
+                }
+                break;
+            default:
+                break;
+        }
+        sw.Stop();
+        // Debug.WriteLine($"elapsed time (NetProc): {sw.ElapsedMilliseconds}");
+    }
+
+
+    private void UpdateData()
+    {
+        date2 = DateTime.Now;
+
+
+        UpdateDetailedTab();
+    }
+
+
+    private void UpdateDetailedTab()
+    {
+        if (netProc.MyProcesses != null && netProc.MyProcessesBuffer != null && dudvm.MyProcesses != null)
+        {
+            foreach (KeyValuePair<int, MyProcess_Big> app in dudvm.MyProcesses)
+            {
+                dudvm.MyProcesses[app.Key].CurrentDataRecv = 0;
+                dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
+            }
+
+
+            netProc.IsBufferTime = true;
+
+
+            //this dictionary is locked from being accessible by the other threads like the network data capture Recv()
+            lock (netProc.MyProcesses)
+            {
+                foreach (KeyValuePair<string, MyProcess_Small?> app in netProc.MyProcesses) //the contents of this loops remain only for a sec (related to NetworkProcess.cs=>CaptureNetworkSpeed())
+                {
+                    int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
+
+
+                    if (processid <= 0)
                     {
-                        // Outgoing packet
-                        data!.TotalDataSent += payloadLength;
-                    }
-                    else if (dstIp.GetAddressBytes().SequenceEqual(myIpAddress.Item1) || dstIp.GetAddressBytes().SequenceEqual(myIpAddress.Item2))
-                    {
-                        // Incoming packet
-                        data!.TotalDataRcvd += payloadLength;
-                    }
-                    else
-                    {
-                        data!.TotalDataSent += payloadLength;
+                        continue;
                     }
 
-                    processData[pid] = data;
+
+                    if (!dudvm.MyProcesses.ContainsKey(processid))
+                    {
+                        dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
+
+                        if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
+                        {
+                            MyProcess_Big details = GetProcessDetails(processid);
+                            if (details != null)
+                            {
+                                dudvm.MyProcesses[processid].Name = details.Name;
+                                dudvm.MyProcesses[processid].IsSystemApp = details.IsSystemApp;
+                            }
+                        }
+                    }
+                    dudvm.MyProcesses[processid].CurrentDataRecv = app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].CurrentDataSend = app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].Port = app.Value!.Port;
+
+
+
+
+                }
+                netProc.MyProcesses.Clear();
+            }
+
+
+            netProc.IsBufferTime = false;
+
+
+            lock (netProc.MyProcessesBuffer)
+            {
+                foreach (KeyValuePair<string, MyProcess_Small?> app in netProc.MyProcessesBuffer) //the contents of this loops remain only for a sec (related to NetworkProcess.cs=>CaptureNetworkSpeed())
+                {
+                    int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
+
+
+                    if (processid <= 0)
+                    {
+                        continue;
+                    }
+
+
+                    if (!dudvm.MyProcesses.ContainsKey(processid))
+                    {
+                        dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
+
+                        if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
+                        {
+                            MyProcess_Big details = GetProcessDetails(processid);
+                            if (details != null)
+                            {
+                                dudvm.MyProcesses[processid].Name = details.Name;
+                                dudvm.MyProcesses[processid].IsSystemApp = details.IsSystemApp;
+                            }
+                        }
+                    }
+                    dudvm.MyProcesses[processid].CurrentDataRecv = app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].CurrentDataSend = app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
+                    dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
+                    dudvm.MyProcesses[processid].Port = app.Value!.Port;
+
+
+                    netProc.MyProcessesBuffer.Clear();
                 }
             }
         }
     }
 
-    private static MyProcess_Big GetProcessDetails(int pid)
+
+    private int ProcessPacket(IPAddress? ip, int port)
+    {
+        return GetProcessIdForConnection(ip, port);
+        
+    }
+
+
+    private MyProcess_Big GetProcessDetails(int pid)
     {        
         try
         {
@@ -205,8 +290,9 @@ class Program
             if (process.MainModule != null)
             {
                 myData.IsSystemApp = process.MainModule.FileName!.ToLower().Contains("system");
-                myData.Icon = Icon.ExtractAssociatedIcon(process.MainModule.FileName);
+               // myData.Icon = Icon.ExtractAssociatedIcon(process.MainModule.FileName);
             }
+
 
             return myData;
         }
@@ -218,15 +304,16 @@ class Program
         }
     }
 
-    private static int GetProcessIdForConnection(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort)
+
+    private  int GetProcessIdForConnection(IPAddress ip, int port)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return GetProcessIdForConnectionWindows(srcIp, srcPort, dstIp, dstPort);
+            return GetProcessIdForConnectionWindows(ip, port);
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            return GetProcessIdForConnectionMacOS(srcIp, srcPort, dstIp, dstPort);
+            return GetProcessIdForMacOSConnection(ip.ToString(),port);
         }
         else
         {
@@ -234,35 +321,39 @@ class Program
         }
     }
 
-    private static int GetProcessIdForConnectionWindows(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort)
+
+    private  int GetProcessIdForConnectionWindows(IPAddress ip, int port)
     {
         int bufferSize = 0;
         GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
         IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+
 
         try
         {
             uint result = GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0);
             if (result != 0) return -1;
 
+
             int numEntries = Marshal.ReadInt32(tcpTablePtr);
             IntPtr rowPtr = new IntPtr(tcpTablePtr.ToInt64() + 4);
             int rowSize = Marshal.SizeOf(typeof(MIB_TCPROW_OWNER_PID));
 
+
             for (int i = 0; i < numEntries; i++)
             {
                 var row = (MIB_TCPROW_OWNER_PID)Marshal.PtrToStructure(rowPtr, typeof(MIB_TCPROW_OWNER_PID));
-                IPAddress localIp = new IPAddress(BitConverter.GetBytes(row.localAddr));
                 IPAddress remoteIp = new IPAddress(BitConverter.GetBytes(row.remoteAddr));
 
-                ushort localPort = BitConverter.ToUInt16(new byte[] { row.localPort[1], row.localPort[0] }, 0);
+
                 ushort remotePort = BitConverter.ToUInt16(new byte[] { row.remotePort[1], row.remotePort[0] }, 0);
+
 
                 // Debug output to help trace the issue
                 //Console.WriteLine($"Checking connection: {localIp}:{localPort} -> {remoteIp}:{remotePort}");
 
-                if ((localIp.Equals(srcIp) && localPort == srcPort && remoteIp.Equals(dstIp) && remotePort == dstPort) ||
-                    (localIp.Equals(dstIp) && localPort == dstPort && remoteIp.Equals(srcIp) && remotePort == srcPort))
+
+                if (remoteIp.Equals(ip) && remotePort == port)
                 {
                     return (int)row.owningPid;
                 }
@@ -274,181 +365,99 @@ class Program
             Marshal.FreeHGlobal(tcpTablePtr);
         }
 
+
         return -1;
     }
 
 
-    private static int GetProcessIdForConnectionMacOS(IPAddress srcIp, ushort srcPort, IPAddress dstIp, ushort dstPort)
+    private  int GetProcessIdForMacOSConnection(string? ip, int? port)
+{
+    if (ip == null || port == null){
+        //Console.WriteLine($"Pid: -1 :null");
+        return -1;
+    }
+
+
+    // Construct the command to check for established connections
+    string command = $"lsof -i TCP@{ip}:{port} -n -P -F pcu";
+    var processStartInfo = new System.Diagnostics.ProcessStartInfo
     {
-        // Use nettop command on macOS
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "nettop",
-                Arguments = "-J -P -L 1",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+        FileName = "/bin/bash",
+        Arguments = $"-c \"{command}\"",
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
 
-            using (var process = new Process { StartInfo = startInfo })
-            {
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
 
-                // Parse the nettop output to find the process owning the connection
-                var lines = output.Split('\n');
-                foreach (var line in lines)
-                {
-                    if (line.Contains(srcIp.ToString()) && line.Contains(srcPort.ToString()) &&
-                        line.Contains(dstIp.ToString()) && line.Contains(dstPort.ToString()))
-                    {
-                        // Extract the PID from the nettop output
-                        // The exact parsing logic depends on the nettop output format
-                        string[] parts = line.Split(' ');
-                        if (int.TryParse(parts[1], out int pid))
-                        {
-                            return pid;
-                        }
-                    }
-                }
+    using (var process = new System.Diagnostics.Process { StartInfo = processStartInfo })
+    {
+        process.Start();
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+
+        // Parse the output to find the PID for the matching connection
+        string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+
+            string? item = lines.FirstOrDefault(x => x.StartsWith("p"));
+            if (!string.IsNullOrWhiteSpace(item))
+            {
+                int.TryParse(item.Substring(1), out int pid);
+                return pid;
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to get process ID on macOS: {ex.Message}");
-        }
 
-        return -1;
+
+            //Console.WriteLine($"Pid: -1 {ip}:{port}");
+            return -1;
     }
 
-    private static void DisplayProcessData()
+
+}
+    private void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
-        if (processData != null)
+         
+        if (dudvm != null && dudvm.MyProcesses != null)
         {
-           // Console.WriteLine($"Adapter: {netProc.AdapterName}, Download Speed: {netProc.DownloadSpeed}, Upload Speed: {netProc.UploadSpeed}");
-           // Console.WriteLine($"Current Session:  Download Data: {netProc.CurrentSessionDownloadData}, Upload Data: {netProc.CurrentSessionUploadData} ");
+            
             Console.WriteLine("------------------------------------");
             Console.WriteLine("MyProcesses:");
-            foreach (var process in processData)
-            { 
-                if (process.Value != null)
-                {
-                    Console.WriteLine($"Process Name: {process.Value.Name} ({process.Key}) , IsSytem: {process.Value.IsSystemApp}, CurrentDataRecv: {process.Value.CurrentDataRcvd}, CurrentDataSend: {process.Value.CurrentDataSent}, TotalDataRecieved: {process.Value.TotalDataRcvd}, TotalDataSent: {process.Value.TotalDataSent}");
-                }
+            foreach (var process in dudvm.MyProcesses)
+            {
+                Console.WriteLine($"Process ID: {process.Key}, Name: {process.Value.Name}, IsSystem: {process.Value.IsSystemApp}, TotalDataReceived: {process.Value.TotalDataRecv}, TotalDataSent: {process.Value.TotalDataSend}");
             }
-            Console.WriteLine("-------------------------------------");
+            Console.WriteLine("------------------------------------");
         }
     }
 
-    /// <summary>
-    /// returns local IP (IPv4, IPv6)
-    /// </summary>
-    /// <returns></returns>
-    private static (byte[], byte[]) GetLocalIP()
+
+    private async Task SendProcessDataAsync()
     {
-        byte[] tempv4 = defaultIPv4;
-        byte[] tempv6 = defaultIPv6;
-
-        // IPv6
-        using (Socket socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, 0))
+        if (dudvm != null && dudvm.MyProcesses != null)
         {
-            try
-            {
-                socket.Connect("2001:4860:4860::8888", 65530);
-                IPEndPoint? endPoint = socket.LocalEndPoint as IPEndPoint;
-                if (endPoint != null)
-                    tempv6 = endPoint.Address.GetAddressBytes();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine(ex.Message);
-            }
+            await socketConnection!.SendDataAsync(dudvm.MyProcesses);
         }
-
-        // IPv4
-        using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
-        {
-            try
-            {
-                socket.Connect("8.8.8.8", 65530);
-                IPEndPoint? endPoint = socket.LocalEndPoint as IPEndPoint;
-                if (endPoint != null)
-                    tempv4 = endPoint.Address.GetAddressBytes();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine(ex.Message);
-            }
-        }
-
-        return (tempv4, tempv6);
     }
 
-    private static NetworkInterface GetStatusUpConnectedDevice(object? sender, EventArgs? e)
+
+    public void Dispose()
     {
-        bool networkAvailable = false;
-        NetworkInterface[] adapters = NetworkInterface.GetAllNetworkInterfaces();
-        foreach (NetworkInterface n in adapters)
-        {
-            if (n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            {
-                if (n.OperationalStatus == OperationalStatus.Up) //if there is a connection
-                {
-                    myIpAddress = GetLocalIP(); //get assigned ip
-
-                    IPInterfaceProperties adapterProperties = n.GetIPProperties();
-                    if (adapterProperties.GatewayAddresses.FirstOrDefault() != null)
-                    {
-                        foreach (UnicastIPAddressInformation ip in adapterProperties.UnicastAddresses)
-                        {
-                            if (ByteArray.Compare(ip.Address.GetAddressBytes(), myIpAddress.Item1))
-                            {
-                                if (localIPv4 == myIpAddress.Item1) //this is to prevent this event from firing multiple times during 1 connection change
-                                    break;
-                                else
-                                    localIPv4 = myIpAddress.Item1;
-
-                                networkAvailable = true;
-                                AdapterName = n.Name;
-                                if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
-                                    //AdapterName += "(" + NativeWifi.EnumerateConnectedNetworkSsids()?.FirstOrDefault()?.ToString() + ")";
-
-                                    Debug.WriteLine(n.Name + " is up " + ", IP: " + ip.Address.ToString());
-
-                                return n;
-                            }
-                            else if (ByteArray.Compare(ip.Address.GetAddressBytes(), myIpAddress.Item2))
-                            {
-                                if (localIPv6 == myIpAddress.Item2) //this is to prevent this event from firing multiple times during 1 connection change
-                                    break;
-                                else
-                                    localIPv6 = myIpAddress.Item2;
-
-                                networkAvailable = true;
-                                AdapterName = n.Name;
-                                if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
-                                    //AdapterName += "(" + NativeWifi.EnumerateConnectedNetworkSsids()?.FirstOrDefault()?.ToString() + ")";
-
-                                    Debug.WriteLine(n.Name + " is up " + ", IP: " + ip.Address.ToString());
-
-                                return n;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static void NetworkChange_NetworkAddressChanged(object? sender, EventArgs? e)
-    {
-        GetStatusUpConnectedDevice(sender, e);
+        netProc!.PropertyChanged -= NetProc_PropertyChanged;
+        socketConnection?.Dispose();
     }
 }
 
+
+class ProgramEntryPoint
+{
+    public static async Task Main(string[] args)
+    {
+        //async Task
+        using (var program = new Program())
+        {
+            await program.Main(args);
+        }
+    }
+}
