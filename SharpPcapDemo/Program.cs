@@ -6,13 +6,17 @@ using System.Net;
 using System.Runtime.InteropServices;
 
 
+
+
 class Program : INotifyPropertyChanged, IDisposable
 {
+
 
     #region Properties
     private DataUsageDetailedVM? dudvm; 
     private NetworkProcess? netProc;
     private SocketConnection? socketConnection;
+
 
     public long downloadSpeed;
     public long DownloadSpeed
@@ -22,8 +26,11 @@ class Program : INotifyPropertyChanged, IDisposable
     }
     public long uploadSpeed;
 
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged(string propName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
+
+
 
 
     public long UploadSpeed
@@ -32,6 +39,7 @@ class Program : INotifyPropertyChanged, IDisposable
         set { uploadSpeed = value; OnPropertyChanged("UploadSpeed"); }
     }
 
+
     private string networkStatus;
     public string NetworkStatus
     {
@@ -39,12 +47,15 @@ class Program : INotifyPropertyChanged, IDisposable
         set { networkStatus = value; OnPropertyChanged("NetworkStatus"); }
     }
 
+
     private DateTime date1;
     private DateTime date2;
+
 
     private long initTodayTotalDownloadData = 0;
     private long initTodayTotalUploadData = 0;
     #endregion
+
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MIB_TCPROW_OWNER_PID
@@ -59,12 +70,14 @@ class Program : INotifyPropertyChanged, IDisposable
         public uint owningPid;
     }
 
+
     [StructLayout(LayoutKind.Sequential)]
     public struct MIB_TCPTABLE_OWNER_PID
     {
         public uint dwNumEntries;
         public MIB_TCPROW_OWNER_PID table;
     }
+
 
     [DllImport("iphlpapi.dll", SetLastError = true)]
     public static extern uint GetExtendedTcpTable(
@@ -76,33 +89,43 @@ class Program : INotifyPropertyChanged, IDisposable
         int Reserved
     );
 
+
     private (byte[], byte[]) myIpAddress;
     public async Task Main(string[] args)
     {
-        // Start the WebSocket server in a separate task
-        socketConnection = new SocketConnection();
-        var socketTask = socketConnection.StartConnectionAsync();
-
-        Console.WriteLine("Handshake Successful");
-        DownloadSpeed = 0;
-        UploadSpeed = 0;
-        date1 = DateTime.Now;
-        date2 = DateTime.Now;
-
-        networkStatus = "";
-        dudvm = new DataUsageDetailedVM();
-
-        netProc = new NetworkProcess();
-        netProc.PropertyChanged += NetProc_PropertyChanged;
-        netProc.Initialize(); // Have to call this after subscribing to property changed
-
-        // Continuously display MyProcesses
-        while (true)
+        using (var cancellationTokenSource = new CancellationTokenSource())
         {
-            await SendProcessDataAsync();
-            Thread.Sleep(4000); // Wait for 4 seconds before sending data again
+            // Start the WebSocket server in a separate task
+            socketConnection = new SocketConnection();
+            var socketTask = socketConnection.StartConnectionAsync();
+
+
+            Console.WriteLine("Handshake Successful");
+            DownloadSpeed = 0;
+            UploadSpeed = 0;
+            date1 = DateTime.Now;
+            date2 = DateTime.Now;
+
+
+            networkStatus = "";
+            dudvm = new DataUsageDetailedVM();
+
+
+            netProc = new NetworkProcess();
+            netProc.PropertyChanged += NetProc_PropertyChanged;
+            netProc.Initialize(); // Have to call this after subscribing to property changed
+
+
+            // Continuously display MyProcesses
+            while (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested)
+            {
+                await SendProcessDataAsync();
+                //DisplayProcessData();
+                Thread.Sleep(4000); // Wait for 4 seconds before sending data again
+            }
         }
     }
+
 
     private void NetProc_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -138,12 +161,15 @@ class Program : INotifyPropertyChanged, IDisposable
         // Debug.WriteLine($"elapsed time (NetProc): {sw.ElapsedMilliseconds}");
     }
 
+
     private void UpdateData()
     {
         date2 = DateTime.Now;
 
+
         UpdateDetailedTab();
     }
+
 
     private void UpdateDetailedTab()
     {
@@ -155,7 +181,9 @@ class Program : INotifyPropertyChanged, IDisposable
                 dudvm.MyProcesses[app.Key].CurrentDataSend = 0;
             }
 
+
             netProc.IsBufferTime = true;
+
 
             //this dictionary is locked from being accessible by the other threads like the network data capture Recv()
             lock (netProc.MyProcesses)
@@ -164,14 +192,17 @@ class Program : INotifyPropertyChanged, IDisposable
                 {
                     int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
 
+
                     if (processid <= 0)
                     {
                         continue;
                     }
 
+
                     if (!dudvm.MyProcesses.ContainsKey(processid))
                     {
                         dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
 
                         if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
@@ -190,11 +221,15 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
 
 
+
+
                 }
                 netProc.MyProcesses.Clear();
             }
 
+
             netProc.IsBufferTime = false;
+
 
             lock (netProc.MyProcessesBuffer)
             {
@@ -202,14 +237,17 @@ class Program : INotifyPropertyChanged, IDisposable
                 {
                     int processid = ProcessPacket(app.Value!.IpAddress, app.Value!.Port);
 
+
                     if (processid <= 0)
                     {
                         continue;
                     }
 
+
                     if (!dudvm.MyProcesses.ContainsKey(processid))
                     {
                         dudvm.MyProcesses.TryAdd(processid, new MyProcess_Big("", 0, 0, 0, 0));
+
 
                         if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
@@ -227,17 +265,20 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
 
+
                     netProc.MyProcessesBuffer.Clear();
                 }
             }
         }
     }
 
+
     private int ProcessPacket(IPAddress? ip, int port)
     {
         return GetProcessIdForConnection(ip, port);
         
     }
+
 
     private MyProcess_Big GetProcessDetails(int pid)
     {        
@@ -252,6 +293,7 @@ class Program : INotifyPropertyChanged, IDisposable
                // myData.Icon = Icon.ExtractAssociatedIcon(process.MainModule.FileName);
             }
 
+
             return myData;
         }
         catch (Exception ex)
@@ -261,6 +303,7 @@ class Program : INotifyPropertyChanged, IDisposable
             return null;
         }
     }
+
 
     private  int GetProcessIdForConnection(IPAddress ip, int port)
     {
@@ -278,30 +321,37 @@ class Program : INotifyPropertyChanged, IDisposable
         }
     }
 
+
     private  int GetProcessIdForConnectionWindows(IPAddress ip, int port)
     {
         int bufferSize = 0;
         GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
         IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
 
+
         try
         {
             uint result = GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0);
             if (result != 0) return -1;
 
+
             int numEntries = Marshal.ReadInt32(tcpTablePtr);
             IntPtr rowPtr = new IntPtr(tcpTablePtr.ToInt64() + 4);
             int rowSize = Marshal.SizeOf(typeof(MIB_TCPROW_OWNER_PID));
+
 
             for (int i = 0; i < numEntries; i++)
             {
                 var row = (MIB_TCPROW_OWNER_PID)Marshal.PtrToStructure(rowPtr, typeof(MIB_TCPROW_OWNER_PID));
                 IPAddress remoteIp = new IPAddress(BitConverter.GetBytes(row.remoteAddr));
 
+
                 ushort remotePort = BitConverter.ToUInt16(new byte[] { row.remotePort[1], row.remotePort[0] }, 0);
+
 
                 // Debug output to help trace the issue
                 //Console.WriteLine($"Checking connection: {localIp}:{localPort} -> {remoteIp}:{remotePort}");
+
 
                 if (remoteIp.Equals(ip) && remotePort == port)
                 {
@@ -315,8 +365,10 @@ class Program : INotifyPropertyChanged, IDisposable
             Marshal.FreeHGlobal(tcpTablePtr);
         }
 
+
         return -1;
     }
+
 
     private  int GetProcessIdForMacOSConnection(string? ip, int? port)
 {
@@ -324,6 +376,7 @@ class Program : INotifyPropertyChanged, IDisposable
         //Console.WriteLine($"Pid: -1 :null");
         return -1;
     }
+
 
     // Construct the command to check for established connections
     string command = $"lsof -i TCP@{ip}:{port} -n -P -F pcu";
@@ -336,14 +389,17 @@ class Program : INotifyPropertyChanged, IDisposable
         CreateNoWindow = true
     };
 
+
     using (var process = new System.Diagnostics.Process { StartInfo = processStartInfo })
     {
         process.Start();
         string output = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
 
+
         // Parse the output to find the PID for the matching connection
         string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
 
             string? item = lines.FirstOrDefault(x => x.StartsWith("p"));
             if (!string.IsNullOrWhiteSpace(item))
@@ -352,9 +408,11 @@ class Program : INotifyPropertyChanged, IDisposable
                 return pid;
             }
 
+
             //Console.WriteLine($"Pid: -1 {ip}:{port}");
             return -1;
     }
+
 
 }
     private void DisplayProcessData()
@@ -374,6 +432,7 @@ class Program : INotifyPropertyChanged, IDisposable
         }
     }
 
+
     private async Task SendProcessDataAsync()
     {
         if (dudvm != null && dudvm.MyProcesses != null)
@@ -382,12 +441,14 @@ class Program : INotifyPropertyChanged, IDisposable
         }
     }
 
+
     public void Dispose()
     {
         netProc!.PropertyChanged -= NetProc_PropertyChanged;
         socketConnection?.Dispose();
     }
 }
+
 
 class ProgramEntryPoint
 {
@@ -400,4 +461,3 @@ class ProgramEntryPoint
         }
     }
 }
-

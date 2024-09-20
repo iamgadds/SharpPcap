@@ -15,6 +15,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
+
 namespace SharpPcapDemo
 {
     public class NetworkProcess : IDisposable
@@ -22,22 +23,28 @@ namespace SharpPcapDemo
         #region Private Properties
         private const int OneSec = 1000;
 
+
         private readonly byte[] defaultIPv4;
         private readonly byte[] defaultIPv6;
         private byte[] localIPv4;
         private byte[] localIPv6;
 
+
         //variables to create seperate running threads for updating the network speed
         private AsyncTask asyncTask_networkSpeed;
+
 
         //this is used to run the event tracing (kernelSession) in a seperate thread
         public Task? PacketTask;
 
+
         public string AdapterName { get; private set; }
+
 
         //memory to store the process network details temporarily before updating the views.
         public Dictionary<string, MyProcess_Small?>? MyProcesses { get; private set; }
         public Dictionary<string, MyProcess_Small?>? MyProcessesBuffer { get; private set; }
+
 
         /// <summary>
         /// why use this 'IsBufferTime'? 
@@ -48,16 +55,26 @@ namespace SharpPcapDemo
         /// </summary>
         public bool IsBufferTime { get; set; }
 
+
         public long CurrentSessionDownloadData;
+
 
         public long CurrentSessionUploadData;
 
+
         public long UploadSpeed;
 
-        private CancellationTokenSource cancellationTokenSource;
+
+        private CancellationToken cancellationTokenSource;
+
+
+        private bool _isDeviceCapturing = false; // Flag to check if the device has started capturing
         #endregion
 
+
         #region Properties
+
+
 
 
         //---------- variables with property changers ------------//
@@ -68,6 +85,7 @@ namespace SharpPcapDemo
             set { downloadSpeed = value; OnPropertyChanged("DownloadSpeed"); }
         }
 
+
         private string isNetworkOnline = "error";
         public string IsNetworkOnline
         {
@@ -75,13 +93,17 @@ namespace SharpPcapDemo
             set { isNetworkOnline = value; OnPropertyChanged("IsNetworkOnline"); }
         }
 
+
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged(string propName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
+
 
         public (byte[], byte[]) myIpAddress;
         #endregion
 
+
         #region Constructor
+
 
         public NetworkProcess()
         {
@@ -104,9 +126,12 @@ namespace SharpPcapDemo
             MyProcessesBuffer = new Dictionary<string, MyProcess_Small?>();
             IsBufferTime = false;
 
+
             PacketTask = null;
 
+
             asyncTask_networkSpeed = new AsyncTask(1);
+
 
             CurrentSessionUploadData = 0;
             CurrentSessionDownloadData = 0;
@@ -115,37 +140,49 @@ namespace SharpPcapDemo
         }
         #endregion
 
+
         #region Initialize
+
 
         /// <summary>
         /// call after subscribing to the property handlers in the Program.cs
         /// </summary>
-        public void Initialize()
+        public async void Initialize()
         {
             IsNetworkOnline = "Disconnected";
 
+
             // Initialize the CancellationTokenSource
-            cancellationTokenSource = new CancellationTokenSource();
+            cancellationTokenSource = new CancellationToken();
+
 
             //subscribe address network address change
             NetworkChange.NetworkAddressChanged += NetworkChange_NetworkAddressChanged;
+
 
             //myIpAddress = GetLocalIP();
             var devices = CaptureDeviceList.Instance;
             NetworkInterface myDevice = GetStatusUpConnectedDevice(null, null);
             var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
 
-            StartNetworkProcess(device);
+
+
+
+            await StartNetworkProcessAsync(device, cancellationTokenSource);
+
 
         }
 
+
         #endregion
+
 
         #region Methods
         private void NetworkChange_NetworkAddressChanged(object? sender, EventArgs? e)
         {
             GetStatusUpConnectedDevice(sender, e);
         }
+
 
         private NetworkInterface GetStatusUpConnectedDevice(object? sender, EventArgs? e)
         {
@@ -161,6 +198,7 @@ namespace SharpPcapDemo
                     {
                         myIpAddress = GetLocalIP(); //get assigned ip
 
+
                         IPInterfaceProperties adapterProperties = n.GetIPProperties();
                         if (adapterProperties.GatewayAddresses.FirstOrDefault() != null)
                         {
@@ -173,12 +211,15 @@ namespace SharpPcapDemo
                                     else
                                         localIPv4 = myIpAddress.Item1;
 
+
                                     networkAvailable = true;
                                     AdapterName = n.Name;
                                     if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
                                         //AdapterName += "(" + NativeWifi.EnumerateConnectedNetworkSsids()?.FirstOrDefault()?.ToString() + ")";
 
+
                                         Debug.WriteLine(n.Name + " is up " + ", IP: " + ip.Address.ToString());
+
 
                                     return n;
                                 }
@@ -189,12 +230,15 @@ namespace SharpPcapDemo
                                     else
                                         localIPv6 = myIpAddress.Item2;
 
+
                                     networkAvailable = true;
                                     AdapterName = n.Name;
                                     if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
                                         //AdapterName += "(" + NativeWifi.EnumerateConnectedNetworkSsids()?.FirstOrDefault()?.ToString() + ")";
 
+
                                         Debug.WriteLine(n.Name + " is up " + ", IP: " + ip.Address.ToString());
+
 
                                     return n;
                                 }
@@ -204,10 +248,12 @@ namespace SharpPcapDemo
                 }
             }
 
+
             #pragma warning disable CS8603 // Possible null reference return.
                         return null;
             #pragma warning restore CS8603 // Possible null reference return.
         }
+
 
         /// <summary>
         /// returns local IP (IPv4, IPv6)
@@ -217,6 +263,7 @@ namespace SharpPcapDemo
         {
             byte[] tempv4 = defaultIPv4;
             byte[] tempv6 = defaultIPv6;
+
 
             // IPv6
             using (Socket socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, 0))
@@ -234,6 +281,7 @@ namespace SharpPcapDemo
                 }
             }
 
+
             // IPv4
             using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
             {
@@ -250,60 +298,63 @@ namespace SharpPcapDemo
                 }
             }
 
+
             return (tempv4, tempv6);
         }
 
-        public void StartNetworkProcess(ILiveDevice device)
+
+        public async Task StartNetworkProcessAsync(ILiveDevice device, CancellationToken token)
         {
             PacketTask = Task.Run(() =>
             {
-                // Open the devices
                 try
                 {
                     device.OnPacketArrival += new PacketArrivalEventHandler(Device_OnPacketArrival);
-                    // Open the device
                     device.Open(DeviceModes.Promiscuous, 1000);
-
-                    // Start capturing packets
                     device.StartCapture();
+                    _isDeviceCapturing = true;
+
+
                 }
                 catch (PcapException e)
                 {
                     Console.WriteLine($"Error opening device: {e.Message}");
                     return;
                 }
-            });
+            }, token);
 
-            asyncTask_networkSpeed.Task = CaptureNetworkSpeed(); //start logging the speed
 
+            asyncTask_networkSpeed.Task = CaptureNetworkSpeed(token); // Start capturing network speed
+
+
+            // Start monitoring for interruptions
+            await MonitorNetworkProcessAsync(device, token);
         }
 
-        private async Task CaptureNetworkSpeed()
+
+        private async Task CaptureNetworkSpeed(CancellationToken token)
         {
             asyncTask_networkSpeed.CancelToken = new CancellationTokenSource();
+
+
             try
             {
                 long tempDownload = 0;
                 long tempUpload = 0;
                 Debug.WriteLine("Operation Started : Network speed");
+
+
                 while (await asyncTask_networkSpeed.Timer.WaitForNextTickAsync(asyncTask_networkSpeed.CancelToken.Token))
                 {
-                    #if DEBUG
-                    Stopwatch sw1 = Stopwatch.StartNew();
-                    #endif
+                    if (token.IsCancellationRequested) break;
+
+
                     UploadSpeed = (CurrentSessionUploadData - tempUpload) * 8;
                     DownloadSpeed = (CurrentSessionDownloadData - tempDownload) * 8;
-                    //UploadSpeed = (CurrentSessionUploadData - tempUpload);
-                    //DownloadSpeed = (CurrentSessionDownloadData - tempDownload);
+
 
                     tempUpload = CurrentSessionUploadData;
                     tempDownload = CurrentSessionDownloadData;
-                    #if DEBUG
-                    sw1.Stop();
-                    Debug.WriteLine($"elapsed time (CaptureNetworkSpeed): {sw1.ElapsedMilliseconds} | time {DateTime.Now.ToString("O")}");
-                    #endif
-                    //Debug.WriteLine($"current thread (CaptureNetworkSpeed): {Thread.CurrentThread.ManagedThreadId}");
-                    //Debug.WriteLine($"networkProcess {DownloadSpeed}");
                 }
             }
             catch (OperationCanceledException ex)
@@ -316,13 +367,35 @@ namespace SharpPcapDemo
             }
         }
 
+
+        private async Task MonitorNetworkProcessAsync(ILiveDevice device, CancellationToken token)
+        {
+
+
+            while (true)
+            {
+                if (!device.Started && _isDeviceCapturing) // If the device stopped due to sleep or other interruptions
+                {
+                    device.StartCapture(); // Restart capture
+                }
+
+
+                await Task.Delay(10000); // Check every 10 seconds
+            }
+        }
+
+
+
+
         private void Device_OnPacketArrival(object sender, PacketCapture e)
         {
+
 
             var rawPacket = e.GetPacket();
             var packet = Packet.ParsePacket(rawPacket.LinkLayerType, rawPacket.Data);
             var tcpPacket = packet.Extract<TcpPacket>();
             var ipPacket = packet.Extract<IPPacket>();
+
 
             if (tcpPacket != null)
             {
@@ -330,26 +403,32 @@ namespace SharpPcapDemo
                 ipPacket!.UpdateCalculatedValues();
                 tcpPacket!.UpdateTcpChecksum();
 
+
                 var srcIp = ipPacket!.SourceAddress;
                 var dstIp = ipPacket!.DestinationAddress;
                 var srcPort = tcpPacket.SourcePort;
                 var dstPort = tcpPacket.DestinationPort;
                 var packetLength = tcpPacket.PayloadData.Length;
 
+
                 if (packetLength > 0)
                 {
                     SendOrRecvPackets(srcIp, srcPort, dstIp, dstPort, packetLength);
                 }
 
+
                 //Console.WriteLine($"Captured Packet: {ipPacket.SourceAddress}:{tcpPacket.SourcePort} -> {ipPacket.DestinationAddress}:{tcpPacket.DestinationPort}, Payload Length: {tcpPacket.PayloadData.Length}");
+
 
             }
         }
+
 
         private void SendOrRecvPackets(IPAddress? srcIp, int srcPort, IPAddress? dstIp, int dstPort, int payloadLength)
         {
             bool ipCompSrc = ByteArray.Compare(srcIp.GetAddressBytes(), localIPv4);
             // bool ipCompDest = ByteArray.Compare(dstIp.GetAddressBytes(), localIPv4);
+
 
             if (ipCompSrc)
             {
@@ -362,7 +441,9 @@ namespace SharpPcapDemo
                 RecvPacket(srcIp, srcPort, payloadLength);
             }
 
+
         }
+
 
         private void RecvPacket(IPAddress? ip, int port, int size)
         {
@@ -386,6 +467,7 @@ namespace SharpPcapDemo
             }
                 
         }
+
 
         private void SendPacket(IPAddress? ip, int port, int size)
         {
@@ -411,12 +493,18 @@ namespace SharpPcapDemo
         }
         #endregion
 
+
         #region Cleanup
         public void Dispose()
         {
-            throw new NotImplementedException();
+            asyncTask_networkSpeed.CancelToken?.Cancel();
+            PacketTask?.Dispose();
+            // Add more cleanup logic as needed
         }
+
+
         #endregion
+
 
     }
 }

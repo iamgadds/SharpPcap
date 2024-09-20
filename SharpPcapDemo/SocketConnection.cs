@@ -3,20 +3,24 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 
+
 namespace SharpPcapDemo
 {
     public class SocketConnection : IDisposable
     {
         private HttpListener? _listener;
         private WebSocket? _webSocket;
-        private CancellationTokenSource? _cancellationTokenSource = new CancellationTokenSource();
-
+        private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+        private DateTime _lastPingTime = DateTime.Now;
+        private readonly TimeSpan _pingTimeout = TimeSpan.FromSeconds(15);
+        private const string ExpectedToken = "9671e20d4fc256efffd56109d09be296556ba39e"; // Set your expected token here
         public void Dispose()
         {
-            _cancellationTokenSource?.Cancel();
             _webSocket?.Dispose();
             _listener?.Close();
+            _cancellationTokenSource.Cancel();
         }
+
 
         public async Task StartConnectionAsync()
         {
@@ -25,21 +29,47 @@ namespace SharpPcapDemo
             _listener.Start();
             Console.WriteLine("WebSocket server started at ws://localhost:8080/");
 
-            while (!_cancellationTokenSource.Token.IsCancellationRequested)
+
+            // Start a task to monitor the ping time
+            _ = Task.Run(() => MonitorPingAsync(_cancellationTokenSource.Token));
+
+
+            while (_cancellationTokenSource != null && !_cancellationTokenSource.Token.IsCancellationRequested)
             {
                 try
                 {
                     HttpListenerContext context = await _listener.GetContextAsync();
                     Console.WriteLine("Received HTTP request");
 
+
                     if (context.Request.IsWebSocketRequest)
                     {
-                        HttpListenerWebSocketContext webSocketContext = await context.AcceptWebSocketAsync(null);
-                        _webSocket = webSocketContext.WebSocket;
-                        Console.WriteLine("WebSocket connection established");
 
-                        // Handle WebSocket communication in a separate task
-                        _ = Task.Run(() => HandleWebSocketAsync(_webSocket, _cancellationTokenSource.Token));
+
+                        // Check if the Sec-WebSocket-Protocol header contains the expected token
+                        var tokenHeader = context.Request.Headers["Sec-WebSocket-Protocol"];
+                        if (tokenHeader == ExpectedToken)
+                        {
+                            HttpListenerWebSocketContext webSocketContext = await context.AcceptWebSocketAsync(ExpectedToken); // Return the token in the response header
+                            _webSocket = webSocketContext.WebSocket;
+                            Console.WriteLine("WebSocket connection established with valid token");
+
+
+                            // Initialize the last ping time
+                            _lastPingTime = DateTime.Now;
+
+
+                            // Handle WebSocket communication in a separate task
+                            _ = Task.Run(() => HandleWebSocketAsync(_webSocket, _cancellationTokenSource.Token));
+                        }
+                        else
+                        {
+                            context.Response.StatusCode = 401; // Unauthorized
+                            context.Response.Close();
+                            Console.WriteLine("Unauthorized WebSocket request rejected");
+                        }
+
+
                     }
                     else
                     {
@@ -55,10 +85,12 @@ namespace SharpPcapDemo
             }
         }
 
+
         private async Task HandleWebSocketAsync(WebSocket webSocket, CancellationToken token)
         {
             var buffer = new byte[1024 * 4];
             WebSocketReceiveResult result;
+
 
             try
             {
@@ -69,6 +101,20 @@ namespace SharpPcapDemo
                     {
                         await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
                         Console.WriteLine("WebSocket connection closed by client");
+                    }
+                    else if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        Console.WriteLine($"Received message: {message}");
+
+
+                        // Handle Ping-Pong messages
+                        if (message == "ping")
+                        {
+                            Console.WriteLine("Received 'ping', sending 'pong'...");
+                            _lastPingTime = DateTime.Now; // Update last ping time
+                            await SendPongAsync(); // Respond with "pong"
+                        }
                     }
                 }
             }
@@ -82,6 +128,7 @@ namespace SharpPcapDemo
                 Console.WriteLine("WebSocket disposed");
             }
         }
+
 
         public async Task SendDataAsync(object data)
         {
@@ -106,6 +153,42 @@ namespace SharpPcapDemo
             {
                 Console.WriteLine("WebSocket is not open. Cannot send data.");
             }
+        }
+
+
+        private async Task SendPongAsync()
+        {
+            if (_webSocket != null && _webSocket.State == WebSocketState.Open)
+            {
+                byte[] buffer = Encoding.UTF8.GetBytes("pong");
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                Console.WriteLine("Sent 'pong'");
+            }
+        }
+
+
+        private async Task MonitorPingAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                if (DateTime.Now - _lastPingTime > _pingTimeout)
+                {
+                    Console.WriteLine("No 'ping' received in the last 10 seconds. Shutting down...");
+                    OnApplicationExit(); // Gracefully exit the app
+                    break;
+                }
+
+
+                await Task.Delay(1000, token); // Check every second
+            }
+        }
+
+
+        private void OnApplicationExit()
+        {
+            _cancellationTokenSource.Cancel();
+            Console.WriteLine("Shutting down...");
+            Environment.Exit(0); // Terminate the application
         }
     }
 }
