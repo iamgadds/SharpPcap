@@ -31,20 +31,15 @@ cd your-repo/NetworkPacketCaptureApp
 Open the solution in Visual Studio or another IDE that supports .NET projects.
 
 Restore the dependencies:
-
-bash
-Copy code
 dotnet restore
+
 Build the project:
-
-bash
-Copy code
 dotnet build
-Run the application:
 
-bash
-Copy code
+
+Run the application:
 dotnet run
+
 If you wish to create a self-contained executable, run:
 
 bash
@@ -53,6 +48,7 @@ dotnet publish -c Release -r win-x64 --self-contained
 Ensure that you have the necessary permissions to capture network packets:
 
 Run the application with admin privileges.
+
 macOS
 Clone the repository to your local machine:
 
@@ -95,6 +91,7 @@ bash
 Copy code
 xattr -d com.apple.quarantine /path/to/your/build/SharpPcapDemo
 Running the Application
+
 Windows and macOS:
 Ensure the Electron app is running before starting this application.
 This application will connect to the Electron app via WebSocket.
