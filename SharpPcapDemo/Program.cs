@@ -97,7 +97,7 @@ class Program : INotifyPropertyChanged, IDisposable
         {
             // Start the WebSocket server in a separate task
             socketConnection = new SocketConnection();
-            var socketTask = socketConnection.StartConnectionAsync();
+            //var socketTask = socketConnection.StartConnectionAsync();
 
 
             Console.WriteLine("Handshake Successful");
@@ -119,8 +119,8 @@ class Program : INotifyPropertyChanged, IDisposable
             // Continuously display MyProcesses
             while (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested)
             {
-                await SendProcessDataAsync();
-                //DisplayProcessData();
+                //await SendProcessDataAsync();
+                DisplayProcessData();
                 Thread.Sleep(4000); // Wait for 4 seconds before sending data again
             }
         }
