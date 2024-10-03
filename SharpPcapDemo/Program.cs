@@ -382,7 +382,7 @@ class Program : INotifyPropertyChanged, IDisposable
 
         // Adjust the command for IPv4 or IPv6
         string command = isIPv6
-            ? $"lsof -i TCP:[{ip}]:{port} -n -P -F pcu"  // IPv6 format with square brackets
+            ? $"lsof -i TCP@[{ip}]:{port} -n -P -F pcu"  // IPv6 format with square brackets
             : $"lsof -i TCP@{ip}:{port} -n -P -F pcu";   // IPv4 format
 
         var processStartInfo = new System.Diagnostics.ProcessStartInfo
