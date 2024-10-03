@@ -370,37 +370,38 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 
-    private  int GetProcessIdForMacOSConnection(string? ip, int? port)
-{
-    if (ip == null || port == null){
-        //Console.WriteLine($"Pid: -1 :null");
-        return -1;
-    }
-
-
-    // Construct the command to check for established connections
-    string command = $"lsof -i TCP@{ip}:{port} -n -P -F pcu";
-    var processStartInfo = new System.Diagnostics.ProcessStartInfo
+    private int GetProcessIdForMacOSConnection(string? ip, int? port)
     {
-        FileName = "/bin/bash",
-        Arguments = $"-c \"{command}\"",
-        RedirectStandardOutput = true,
-        UseShellExecute = false,
-        CreateNoWindow = true
-    };
+        if (ip == null || port == null)
+        {
+            return -1;
+        }
 
+        // Check if IP is IPv6
+        bool isIPv6 = ip.Contains(":");
 
-    using (var process = new System.Diagnostics.Process { StartInfo = processStartInfo })
-    {
-        process.Start();
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
+        // Adjust the command for IPv4 or IPv6
+        string command = isIPv6
+            ? $"lsof -i TCP@[{ip}]:{port} -n -P -F pcu"  // IPv6 format with square brackets
+            : $"lsof -i TCP@{ip}:{port} -n -P -F pcu";   // IPv4 format
 
+        var processStartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "/bin/bash",
+            Arguments = $"-c \"{command}\"",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
 
-        // Parse the output to find the PID for the matching connection
-        string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        using (var process = new System.Diagnostics.Process { StartInfo = processStartInfo })
+        {
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
 
-
+            // Parse the output to find the PID for the matching connection
+            string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
             string? item = lines.FirstOrDefault(x => x.StartsWith("p"));
             if (!string.IsNullOrWhiteSpace(item))
             {
@@ -408,13 +409,9 @@ class Program : INotifyPropertyChanged, IDisposable
                 return pid;
             }
 
-
-            //Console.WriteLine($"Pid: -1 {ip}:{port}");
             return -1;
+        }
     }
-
-
-}
     private void DisplayProcessData()
     {
         Console.WriteLine("\nData usage by process:");
