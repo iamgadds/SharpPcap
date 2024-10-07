@@ -14,6 +14,8 @@ namespace SharpPcapDemo
         private DateTime _lastPingTime = DateTime.Now;
         private readonly TimeSpan _pingTimeout = TimeSpan.FromSeconds(15);
         private const string ExpectedToken = "9671e20d4fc256efffd56109d09be296556ba39e"; // Set your expected token here
+        private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1); // Semaphore for controlling SendAsync
+
         public void Dispose()
         {
             _webSocket?.Dispose();
@@ -138,7 +140,17 @@ namespace SharpPcapDemo
                 {
                     string jsonData = JsonConvert.SerializeObject(data);
                     byte[] buffer = Encoding.UTF8.GetBytes(jsonData);
-                    await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+
+                    // Ensure only one SendAsync call at a time
+                    await _sendLock.WaitAsync();
+                    try
+                    {
+                        await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
                 }
                 catch (WebSocketException ex)
                 {
@@ -161,10 +173,21 @@ namespace SharpPcapDemo
             if (_webSocket != null && _webSocket.State == WebSocketState.Open)
             {
                 byte[] buffer = Encoding.UTF8.GetBytes("pong");
-                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
-                Console.WriteLine("Sent 'pong'");
+
+                // Ensure only one SendAsync call at a time
+                await _sendLock.WaitAsync();
+                try
+                {
+                    await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                    Console.WriteLine("Sent 'pong'");
+                }
+                finally
+                {
+                    _sendLock.Release();
+                }
             }
         }
+
 
 
         private async Task MonitorPingAsync(CancellationToken token)
