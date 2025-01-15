@@ -96,7 +96,7 @@ class Program : INotifyPropertyChanged, IDisposable
         using (var cancellationTokenSource = new CancellationTokenSource())
         {
             // Start the WebSocket server in a separate task
-            socketConnection = new SocketConnection();
+            socketConnection = new SocketConnection(RestartApplication);
             var socketTask = socketConnection.StartConnectionAsync();
 
 
@@ -111,9 +111,7 @@ class Program : INotifyPropertyChanged, IDisposable
             dudvm = new DataUsageDetailedVM();
 
 
-            netProc = new NetworkProcess();
-            netProc.PropertyChanged += NetProc_PropertyChanged;
-            netProc.Initialize(); // Have to call this after subscribing to property changed
+            InitialiseNetproc();
 
 
             // Continuously display MyProcesses
@@ -126,6 +124,30 @@ class Program : INotifyPropertyChanged, IDisposable
         }
     }
 
+
+    private void RestartApplication()
+    {
+        if (netProc != null)
+        {
+            netProc.Dispose();
+            netProc = null;
+        }
+        InitialiseNetproc();
+    }
+
+    private void InitialiseNetproc()
+    {
+        try
+        {
+            netProc = new NetworkProcess();
+            netProc.PropertyChanged += NetProc_PropertyChanged;
+            netProc.Initialize(); // Have to call this after subscribing to property changed
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error in Initialising NetProc: ", ex.Message);
+        }
+    }
 
     private void NetProc_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
