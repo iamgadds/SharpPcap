@@ -21,8 +21,6 @@ namespace SharpPcapDemo
     public class NetworkProcess : IDisposable
     {
         #region Private Properties
-        private const int OneSec = 1000;
-
 
         private readonly byte[] defaultIPv4;
         private readonly byte[] defaultIPv6;
@@ -165,10 +163,10 @@ namespace SharpPcapDemo
             NetworkInterface myDevice = GetStatusUpConnectedDevice(null, null);
             var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
 
-
-
-
-            await StartNetworkProcessAsync(device, cancellationTokenSource);
+            if (device != null)
+            {
+                await StartNetworkProcessAsync(device, cancellationTokenSource);
+            }
 
 
         }
@@ -426,7 +424,7 @@ namespace SharpPcapDemo
 
         private void SendOrRecvPackets(IPAddress? srcIp, int srcPort, IPAddress? dstIp, int dstPort, int payloadLength)
         {
-            bool ipCompSrc = ByteArray.Compare(srcIp.GetAddressBytes(), localIPv4);
+            bool ipCompSrc = ByteArray.Compare(srcIp?.GetAddressBytes(), localIPv4);
             // bool ipCompDest = ByteArray.Compare(dstIp.GetAddressBytes(), localIPv4);
 
 
@@ -451,18 +449,24 @@ namespace SharpPcapDemo
             {
                 lock (MyProcessesBuffer!)
                 {
-                    string ipStr = ip.ToString();
-                    MyProcessesBuffer!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
-                    MyProcessesBuffer[ipStr]!.CurrentDataRecv += size;
+                    string? ipStr = ip?.ToString();
+                    if (ipStr != null)
+                    {
+                        MyProcessesBuffer!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
+                        MyProcessesBuffer[ipStr]!.CurrentDataRecv += size;
+                    }
                 }
             }
             else
             {
                 lock (MyProcesses!)
                 {
-                    string ipStr = ip.ToString();
-                    MyProcesses!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
-                    MyProcesses[ipStr]!.CurrentDataRecv += size;
+                    string? ipStr = ip?.ToString();
+                    if (ipStr != null)
+                    {
+                        MyProcesses!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
+                        MyProcesses[ipStr]!.CurrentDataRecv += size;
+                    }
                 }
             }
                 
@@ -475,18 +479,24 @@ namespace SharpPcapDemo
             {
                 lock (MyProcessesBuffer!)
                 {
-                    string ipStr = ip.ToString();
-                    MyProcessesBuffer!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
-                    MyProcessesBuffer[ipStr]!.CurrentDataSend += size;
+                    string? ipStr = ip?.ToString();
+                    if (ipStr != null)
+                    {
+                        MyProcessesBuffer!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
+                        MyProcessesBuffer[ipStr]!.CurrentDataSend += size;
+                    }
                 }
             }
             else
             {
                 lock (MyProcesses!)
                 {
-                    string ipStr = ip.ToString();
-                    MyProcesses!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
-                    MyProcesses[ipStr]!.CurrentDataSend += size;
+                    string? ipStr = ip?.ToString();
+                    if (ipStr != null)
+                    {
+                        MyProcesses!.TryAdd(ipStr, new MyProcess_Small(ip, 0, 0, port));
+                        MyProcesses[ipStr]!.CurrentDataSend += size;
+                    }
                 }
             }
                 

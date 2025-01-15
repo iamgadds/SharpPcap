@@ -40,20 +40,13 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 
-    private string networkStatus;
-    public string NetworkStatus
+    private string? networkStatus;
+    public string? NetworkStatus
     {
         get { return networkStatus; }
         set { networkStatus = value; OnPropertyChanged("NetworkStatus"); }
     }
 
-
-    private DateTime date1;
-    private DateTime date2;
-
-
-    private long initTodayTotalDownloadData = 0;
-    private long initTodayTotalUploadData = 0;
     #endregion
 
 
@@ -90,7 +83,6 @@ class Program : INotifyPropertyChanged, IDisposable
     );
 
 
-    private (byte[], byte[]) myIpAddress;
     public async Task Main(string[] args)
     {
         using (var cancellationTokenSource = new CancellationTokenSource())
@@ -103,8 +95,6 @@ class Program : INotifyPropertyChanged, IDisposable
             Console.WriteLine("Handshake Successful");
             DownloadSpeed = 0;
             UploadSpeed = 0;
-            date1 = DateTime.Now;
-            date2 = DateTime.Now;
 
 
             networkStatus = "";
@@ -159,10 +149,10 @@ class Program : INotifyPropertyChanged, IDisposable
                 UpdateData();
                 break;
             case "IsNetworkOnline":
-                if (netProc.IsNetworkOnline == "Disconnected")
+                if (netProc?.IsNetworkOnline == "Disconnected")
                 {
                     NetworkStatus = "Disconnected";
-                    if (dudvm.MyProcesses.Count() > 0)
+                    if (dudvm?.MyProcesses.Count() > 0)
                     {
                         dudvm.MyProcesses.Clear();
                         //foreach (var row in dudvm.MyProcesses.ToList())
@@ -173,7 +163,7 @@ class Program : INotifyPropertyChanged, IDisposable
                 }
                 else
                 {
-                    NetworkStatus = "Connected : " + netProc.IsNetworkOnline;
+                    NetworkStatus = "Connected : " + netProc?.IsNetworkOnline;
                 }
                 break;
             default:
@@ -186,16 +176,13 @@ class Program : INotifyPropertyChanged, IDisposable
 
     private void UpdateData()
     {
-        date2 = DateTime.Now;
-
-
         UpdateDetailedTab();
     }
 
 
     private void UpdateDetailedTab()
     {
-        if (netProc.MyProcesses != null && netProc.MyProcessesBuffer != null && dudvm.MyProcesses != null)
+        if (netProc?.MyProcesses != null && netProc.MyProcessesBuffer != null && dudvm?.MyProcesses != null)
         {
             foreach (KeyValuePair<int, MyProcess_Big> app in dudvm.MyProcesses)
             {
@@ -228,7 +215,7 @@ class Program : INotifyPropertyChanged, IDisposable
 
                         if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
-                            MyProcess_Big details = GetProcessDetails(processid);
+                            MyProcess_Big? details = GetProcessDetails(processid);
                             if (details != null)
                             {
                                 dudvm.MyProcesses[processid].Name = details.Name;
@@ -273,7 +260,7 @@ class Program : INotifyPropertyChanged, IDisposable
 
                         if (string.IsNullOrWhiteSpace(dudvm.MyProcesses[processid].Name))
                         {
-                            MyProcess_Big details = GetProcessDetails(processid);
+                            MyProcess_Big? details = GetProcessDetails(processid);
                             if (details != null)
                             {
                                 dudvm.MyProcesses[processid].Name = details.Name;
@@ -302,7 +289,7 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 
-    private MyProcess_Big GetProcessDetails(int pid)
+    private MyProcess_Big? GetProcessDetails(int pid)
     {        
         try
         {
@@ -327,68 +314,9 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 
-    private  int GetProcessIdForConnection(IPAddress ip, int port)
+    private  int GetProcessIdForConnection(IPAddress? ip, int port)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return GetProcessIdForConnectionWindows(ip, port);
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return GetProcessIdForMacOSConnection(ip.ToString(),port);
-        }
-        else
-        {
-            throw new PlatformNotSupportedException("Only Windows and macOS are supported.");
-        }
-    }
-
-
-    private  int GetProcessIdForConnectionWindows(IPAddress ip, int port)
-    {
-        int bufferSize = 0;
-        GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
-        IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
-
-
-        try
-        {
-            uint result = GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0);
-            if (result != 0) return -1;
-
-
-            int numEntries = Marshal.ReadInt32(tcpTablePtr);
-            IntPtr rowPtr = new IntPtr(tcpTablePtr.ToInt64() + 4);
-            int rowSize = Marshal.SizeOf(typeof(MIB_TCPROW_OWNER_PID));
-
-
-            for (int i = 0; i < numEntries; i++)
-            {
-                var row = (MIB_TCPROW_OWNER_PID)Marshal.PtrToStructure(rowPtr, typeof(MIB_TCPROW_OWNER_PID));
-                IPAddress remoteIp = new IPAddress(BitConverter.GetBytes(row.remoteAddr));
-
-
-                ushort remotePort = BitConverter.ToUInt16(new byte[] { row.remotePort[1], row.remotePort[0] }, 0);
-
-
-                // Debug output to help trace the issue
-                //Console.WriteLine($"Checking connection: {localIp}:{localPort} -> {remoteIp}:{remotePort}");
-
-
-                if (remoteIp.Equals(ip) && remotePort == port)
-                {
-                    return (int)row.owningPid;
-                }
-                rowPtr = new IntPtr(rowPtr.ToInt64() + rowSize);
-            }
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(tcpTablePtr);
-        }
-
-
-        return -1;
+        return GetProcessIdForMacOSConnection(ip?.ToString(), port);
     }
 
 

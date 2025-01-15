@@ -1,6 +1,7 @@
 ﻿using Microsoft.Win32;
 using Newtonsoft.Json;
 using SharpPcapDemo.Models;
+using SharpPcapDemo.Utilities;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
@@ -21,12 +22,18 @@ namespace SharpPcapDemo
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1); // Semaphore for controlling SendAsync
         private int _maxNullDataSentCount = 0;
         private Action? RestartApplication;
+        private MacPowerModeHandler _macPowerModeHandler;
 
         public SocketConnection(Action restartApplication)
         {
-            // Subscribe to system power mode change events
-            SystemEvents.PowerModeChanged += OnPowerModeChanged;
             RestartApplication = restartApplication;
+
+            // Initialize and start macOS power mode handler
+            _macPowerModeHandler = new MacPowerModeHandler(
+                onSuspend: () => OnPowerModeChanged("suspend"),
+                onResume: () => OnPowerModeChanged("resume")
+            );
+            _macPowerModeHandler.StartListening();
         }
 
         public void Dispose()
@@ -37,7 +44,7 @@ namespace SharpPcapDemo
             RestartApplication = null;
 
             // Unsubscribe from power mode change events
-            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            _macPowerModeHandler?.StopListening();
         }
 
         public async Task StartConnectionAsync()
@@ -233,14 +240,14 @@ namespace SharpPcapDemo
         }
 
         // Power mode event handler to detect sleep and wake events
-        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+        private void OnPowerModeChanged(string mode)
         {
-            if (e.Mode == PowerModes.Suspend)
+            if (mode == "suspend")
             {
                 Console.WriteLine("System is going to sleep. Pausing ping monitoring.");
                 _isSystemAsleep = true;
             }
-            else if (e.Mode == PowerModes.Resume)
+            else if (mode == "resume")
             {
                 Console.WriteLine("System is waking up. Resuming ping monitoring.");
                 _lastPingTime = DateTime.Now; // Reset the last ping time

@@ -23,7 +23,7 @@ namespace SharpPcapDemo.Utilities
             CancelToken = new CancellationTokenSource();
         }
 
-        private async void StopProcess()
+        private void StopProcess()
         {
             try
             {
