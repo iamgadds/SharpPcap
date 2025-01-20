@@ -22,18 +22,10 @@ namespace SharpPcapDemo
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1); // Semaphore for controlling SendAsync
         private int _maxNullDataSentCount = 0;
         private Action? RestartApplication;
-        private MacPowerModeHandler _macPowerModeHandler;
 
         public SocketConnection(Action restartApplication)
         {
             RestartApplication = restartApplication;
-
-            // Initialize and start macOS power mode handler
-            _macPowerModeHandler = new MacPowerModeHandler(
-                onSuspend: () => OnPowerModeChanged("suspend"),
-                onResume: () => OnPowerModeChanged("resume")
-            );
-            _macPowerModeHandler.StartListening();
         }
 
         public void Dispose()
@@ -43,8 +35,6 @@ namespace SharpPcapDemo
             _cancellationTokenSource.Cancel();
             RestartApplication = null;
 
-            // Unsubscribe from power mode change events
-            _macPowerModeHandler?.StopListening();
         }
 
         public async Task StartConnectionAsync()
@@ -127,14 +117,17 @@ namespace SharpPcapDemo
                             _lastPingTime = DateTime.Now; // Update last ping time
                             await SendPongAsync(); // Respond with "pong"
                         }
-                        if (message == "restart")
+                        else if (message == "restart")
                         {
                             if (RestartApplication != null)
                             {
                                 Console.WriteLine("Recieved restart, restarting the network process...");
                                 RestartApplication();
                             }
-
+                        }
+                        else if(message == "suspend" || message == "resume")
+                        {
+                            OnPowerModeChanged(message);
                         }
                     }
                 }
