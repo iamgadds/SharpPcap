@@ -72,6 +72,10 @@ namespace SharpPcapDemo.Models
 
         public int Port { get; set; }
 
+        public long NON_TCP_PACKETS { get; set; }
+
+        public long PACKETS_LOST { get; set; }
+
         public MyProcess_Big(string nameP, long currentDataRecvP, long currentDataSendP, long totalDataRecvP, long totalDataSendP)
         {
             Name = nameP;

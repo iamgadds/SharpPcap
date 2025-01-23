@@ -17,6 +17,8 @@ class Program : INotifyPropertyChanged, IDisposable
     private NetworkProcess? netProc;
     private SocketConnection? socketConnection;
 
+    private long _tcpPacketsLost = 0;
+
 
     public long downloadSpeed;
     public long DownloadSpeed
@@ -204,6 +206,7 @@ class Program : INotifyPropertyChanged, IDisposable
 
                     if (processid <= 0)
                     {
+                        _tcpPacketsLost +=1;
                         continue;
                     }
 
@@ -228,6 +231,8 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
                     dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
+                    dudvm.MyProcesses[processid].NON_TCP_PACKETS = netProc!.NonTcpPackets;
+                    dudvm.MyProcesses[processid].PACKETS_LOST = _tcpPacketsLost;
 
 
 
@@ -249,6 +254,7 @@ class Program : INotifyPropertyChanged, IDisposable
 
                     if (processid <= 0)
                     {
+                        _tcpPacketsLost +=1;
                         continue;
                     }
 
@@ -273,6 +279,8 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
                     dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
+                    dudvm.MyProcesses[processid].NON_TCP_PACKETS = netProc!.NonTcpPackets;
+                    dudvm.MyProcesses[processid].PACKETS_LOST = _tcpPacketsLost;
 
 
                     netProc.MyProcessesBuffer.Clear();
@@ -375,6 +383,7 @@ class Program : INotifyPropertyChanged, IDisposable
             {
                 Console.WriteLine($"Process ID: {process.Key}, Name: {process.Value.Name}, IsSystem: {process.Value.IsSystemApp}, TotalDataReceived: {process.Value.TotalDataRecv}, TotalDataSent: {process.Value.TotalDataSend}");
             }
+            Console.WriteLine($"Packets other than tcp found: ${netProc!.NonTcpPackets} \n Packets lost due to process id not found: ${_tcpPacketsLost}");
             Console.WriteLine("------------------------------------");
         }
     }
@@ -393,6 +402,11 @@ class Program : INotifyPropertyChanged, IDisposable
     {
         netProc!.PropertyChanged -= NetProc_PropertyChanged;
         socketConnection?.Dispose();
+        _tcpPacketsLost = 0;
+        if(netProc != null){
+            netProc.Dispose();
+            netProc = null;
+        }
     }
 }
 

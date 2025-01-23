@@ -97,6 +97,8 @@ namespace SharpPcapDemo
 
 
         public (byte[], byte[]) myIpAddress;
+
+        public long NonTcpPackets = 0;
         #endregion
 
 
@@ -161,13 +163,16 @@ namespace SharpPcapDemo
             //myIpAddress = GetLocalIP();
             var devices = CaptureDeviceList.Instance;
             NetworkInterface myDevice = GetStatusUpConnectedDevice(null, null);
-            var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
+            
+            if(devices != null){
 
-            if (device != null)
-            {
-                await StartNetworkProcessAsync(device, cancellationTokenSource);
+                var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
+
+                if (device != null)
+                {
+                    await StartNetworkProcessAsync(device, cancellationTokenSource);
+                }
             }
-
 
         }
 
@@ -419,6 +424,9 @@ namespace SharpPcapDemo
 
 
             }
+            else{
+                NonTcpPackets +=1;
+            }
         }
 
 
@@ -509,6 +517,7 @@ namespace SharpPcapDemo
         {
             asyncTask_networkSpeed.CancelToken?.Cancel();
             PacketTask?.Dispose();
+            NonTcpPackets = 0;
             // Add more cleanup logic as needed
         }
 

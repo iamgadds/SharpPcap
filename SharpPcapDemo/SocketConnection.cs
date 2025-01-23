@@ -201,7 +201,7 @@ namespace SharpPcapDemo
                     OnApplicationExit(); // Gracefully exit the app
                     break;
                 }
-                await Task.Delay(1000, token); // Check every second
+                await Task.Delay(2000, token); // Check every second
             }
         }
 
