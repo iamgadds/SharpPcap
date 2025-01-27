@@ -91,7 +91,7 @@ class Program : INotifyPropertyChanged, IDisposable
         {
             // Start the WebSocket server in a separate task
             socketConnection = new SocketConnection(RestartApplication);
-            var socketTask = socketConnection.StartConnectionAsync();
+            //var socketTask = socketConnection.StartConnectionAsync();
 
 
             Console.WriteLine("Handshake Successful");
@@ -109,8 +109,8 @@ class Program : INotifyPropertyChanged, IDisposable
             // Continuously display MyProcesses
             while (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested)
             {
-                await SendProcessDataAsync();
-                //DisplayProcessData();
+                //await SendProcessDataAsync();
+                DisplayProcessData();
                 Thread.Sleep(4000); // Wait for 4 seconds before sending data again
             }
         }
@@ -328,47 +328,65 @@ class Program : INotifyPropertyChanged, IDisposable
     }
 
 
-    private int GetProcessIdForMacOSConnection(string? ip, int? port)
+        private int GetProcessIdForMacOSConnection(string? ip, int? port)
     {
-        if (ip == null || port == null)
+        if (string.IsNullOrEmpty(ip) || port <= 0)
+    {
+        return -1;
+    }
+
+    
+    // Determine if the IP is IPv6
+    bool isIPv6 = ip.Contains(":");
+
+    // Construct the netstat command
+    string command = "netstat -anvp tcp | grep ESTABLISHED";
+
+    var processStartInfo = new ProcessStartInfo
+    {
+        FileName = "/bin/bash",
+        Arguments = $"-c \"{command}\"",
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+
+    using (var process = new Process { StartInfo = processStartInfo })
+    {
+        process.Start();
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        // Split netstat output into lines
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var line in lines)
         {
-            return -1;
-        }
+            // Parse each line to match IP and port
+            var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 9) continue;
 
-        // Check if IP is IPv6
-        bool isIPv6 = ip.Contains(":");
+            string localAddress = parts[3]; // Local address (e.g., 192.168.0.116.57430)
+            string remoteAddress = parts[4]; // Remote address (e.g., 52.168.117.170.443)
+            string pidString = parts[8]; // PID (e.g., 726)
 
-        // Adjust the command for IPv4 or IPv6
-        string command = isIPv6
-            ? $"lsof -i TCP@[{ip}]:{port} -n -P -F pcu"  // IPv6 format with square brackets
-            : $"lsof -i TCP@{ip}:{port} -n -P -F pcu";   // IPv4 format
+            // Format the IP and port for matching
+            string formattedAddress = isIPv6 
+                ? $"[{ip}]:{port}"  // IPv6 format with square brackets
+                : $"{ip}.{port}";   // IPv4 format with dot-separated port
 
-        var processStartInfo = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "/bin/bash",
-            Arguments = $"-c \"{command}\"",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using (var process = new System.Diagnostics.Process { StartInfo = processStartInfo })
-        {
-            process.Start();
-            string output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
-
-            // Parse the output to find the PID for the matching connection
-            string[] lines = output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            string? item = lines.FirstOrDefault(x => x.StartsWith("p"));
-            if (!string.IsNullOrWhiteSpace(item))
+            // Check if the remote address matches the formatted IP and port
+            if (remoteAddress.Contains(formattedAddress))
             {
-                int.TryParse(item.Substring(1), out int pid);
-                return pid;
+                if (int.TryParse(pidString, out int pid))
+                {
+                    return pid; // Return the matched PID
+                }
             }
-
-            return -1;
         }
+    }
+
+    return -1; // PID not found 
     }
     private void DisplayProcessData()
     {
