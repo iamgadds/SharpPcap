@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using SharpPcapDemo.Models;
 using SharpPcapDemo.Utilities;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
@@ -45,7 +46,7 @@ namespace SharpPcapDemo
             Console.WriteLine("WebSocket server started at ws://localhost:8080/");
 
             // Start a task to monitor the ping time
-            _ = Task.Run(() => MonitorPingAsync(_cancellationTokenSource.Token));
+            _ = Task.Run(() => MonitorApplicationRunningAsync(_cancellationTokenSource.Token));
 
             while (_cancellationTokenSource != null && !_cancellationTokenSource.Token.IsCancellationRequested)
             {
@@ -109,15 +110,8 @@ namespace SharpPcapDemo
                     {
                         string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
                         Console.WriteLine($"Received message: {message}");
-
-                        // Handle Ping-Pong messages
-                        if (message == "ping")
-                        {
-                            Console.WriteLine("Received 'ping', sending 'pong'...");
-                            _lastPingTime = DateTime.Now; // Update last ping time
-                            await SendPongAsync(); // Respond with "pong"
-                        }
-                        else if (message == "restart")
+               
+                        if (message == "restart")
                         {
                             if (RestartApplication != null)
                             {
@@ -128,6 +122,11 @@ namespace SharpPcapDemo
                         else if(message == "suspend" || message == "resume")
                         {
                             OnPowerModeChanged(message);
+                        }
+                        else if(message == "kill")
+                        {
+                            Console.WriteLine("Recieved Kill, Shutting Down the application..");
+                            OnApplicationExit();
                         }
                     }
                 }
@@ -191,17 +190,22 @@ namespace SharpPcapDemo
             }
         }
 
-        private async Task MonitorPingAsync(CancellationToken token)
+        private async Task MonitorApplicationRunningAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
                 if (!_isSystemAsleep && DateTime.Now - _lastPingTime > _pingTimeout)
                 {
-                    Console.WriteLine("No 'ping' received in the last 15 seconds. Shutting down...");
-                    OnApplicationExit(); // Gracefully exit the app
-                    break;
+                    bool isActive = await CheckAntarcticaRunning();
+                    if (!isActive)
+                    {
+                        Console.WriteLine("Antarctica App is not running, Shutting Down...");
+                        OnApplicationExit(); // Gracefully exit the app
+                        break;
+                    }
+                    _lastPingTime = DateTime.Now;
                 }
-                await Task.Delay(2000, token); // Check every second
+                await Task.Delay(1000, token); // Check every second
             }
         }
 
@@ -246,6 +250,12 @@ namespace SharpPcapDemo
                 _lastPingTime = DateTime.Now; // Reset the last ping time
                 _isSystemAsleep = false;
             }
+        }
+        private async Task<bool> CheckAntarcticaRunning()
+        {
+            var process = Process.GetProcessesByName("Antarctica");
+            var process2 = Process.GetProcessesByName("Electron");
+            return (process != null && process.Any(x => !x.HasExited)) || (process2 != null && process2.Any(x => !x.HasExited));
         }
     }
 }
