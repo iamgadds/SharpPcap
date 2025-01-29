@@ -32,7 +32,7 @@ class Program : INotifyPropertyChanged, IDisposable
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged(string propName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
 
-
+    private string[] _unnassignedIps = [];
 
 
     public long UploadSpeed
@@ -231,9 +231,8 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
                     dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
-                    dudvm.MyProcesses[processid].NON_TCP_PACKETS = netProc!.NonTcpPackets;
                     dudvm.MyProcesses[processid].PACKETS_LOST = _tcpPacketsLost;
-
+                    dudvm.MyProcesses[processid].UnnassignedIps = _unnassignedIps;
 
 
 
@@ -279,8 +278,8 @@ class Program : INotifyPropertyChanged, IDisposable
                     dudvm.MyProcesses[processid].TotalDataRecv += app.Value!.CurrentDataRecv;
                     dudvm.MyProcesses[processid].TotalDataSend += app.Value!.CurrentDataSend;
                     dudvm.MyProcesses[processid].Port = app.Value!.Port;
-                    dudvm.MyProcesses[processid].NON_TCP_PACKETS = netProc!.NonTcpPackets;
                     dudvm.MyProcesses[processid].PACKETS_LOST = _tcpPacketsLost;
+                    dudvm.MyProcesses[processid].UnnassignedIps = _unnassignedIps;
 
 
                     netProc.MyProcessesBuffer.Clear();
@@ -366,7 +365,7 @@ class Program : INotifyPropertyChanged, IDisposable
                 int.TryParse(item.Substring(1), out int pid);
                 return pid;
             }
-
+            _unnassignedIps.Append($"{ip}:{port}");
             return -1;
         }
     }
