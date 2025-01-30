@@ -113,7 +113,7 @@ namespace SharpPcapDemo
                
                         if (message == "restart")
                         {
-                            if (RestartApplication != null)
+                            if (RestartApplication != null && !_isSystemAsleep)
                             {
                                 Console.WriteLine("Recieved restart, restarting the network process...");
                                 RestartApplication();

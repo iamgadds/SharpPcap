@@ -121,8 +121,12 @@ class Program : INotifyPropertyChanged, IDisposable
     {
         if (netProc != null)
         {
+            netProc.PropertyChanged -= NetProc_PropertyChanged;
             netProc.Dispose();
             netProc = null;
+
+            // Small delay to ensure proper cleanup
+            Thread.Sleep(1000); 
         }
         InitialiseNetproc();
     }

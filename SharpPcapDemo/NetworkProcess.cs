@@ -99,6 +99,9 @@ namespace SharpPcapDemo
         public (byte[], byte[]) myIpAddress;
 
         public long NonTcpPackets = 0;
+
+        private ILiveDevice? _device;
+
         #endregion
 
 
@@ -166,11 +169,11 @@ namespace SharpPcapDemo
             
             if(devices != null){
 
-                var device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
+                _device = devices.FirstOrDefault(x => x.Name!.Contains(myDevice!.Id));
 
-                if (device != null)
+                if (_device != null)
                 {
-                    await StartNetworkProcessAsync(device, cancellationTokenSource);
+                    await StartNetworkProcessAsync(_device, cancellationTokenSource);
                 }
             }
 
@@ -331,8 +334,8 @@ namespace SharpPcapDemo
 
 
             // Start monitoring for interruptions
-            await MonitorNetworkProcessAsync(device, token);
-        }
+            await MonitorNetworkProcessAsync(device, token);            
+        }        
 
 
         private async Task CaptureNetworkSpeed(CancellationToken token)
@@ -515,11 +518,26 @@ namespace SharpPcapDemo
         #region Cleanup
         public void Dispose()
         {
-            asyncTask_networkSpeed.CancelToken?.Cancel();
-            PacketTask?.Dispose();
-            NonTcpPackets = 0;
-            // Add more cleanup logic as needed
+    try
+    {
+        if (_isDeviceCapturing && _device != null)
+        {
+            _device.StopCapture(); 
+            _device.Close();      
+            _isDeviceCapturing = false;
         }
+        
+        asyncTask_networkSpeed.CancelToken?.Cancel();
+        PacketTask?.Dispose();
+        NonTcpPackets = 0;
+        
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error disposing NetworkProcess: {ex.Message}");
+    }
+}
+
 
 
         #endregion
